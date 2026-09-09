@@ -53,21 +53,41 @@ Requires **Firefox 140+** (142+ on Android) — that's the floor for the
 Temporary add-ons are cleared when Firefox restarts. Permanent installation needs
 [signing through AMO][signing].
 
-## ⚠️ Verifying the selectors
+## Verifying the selectors
 
-**This is the part most likely to be wrong.** The selectors in `src/moxfield-dom.js`
-(`.img-card` and friends) were taken from the Card Pricer extension's source, not
-verified against a live Moxfield page — Moxfield's React app would not finish loading
-in the automated browser used to build this scaffold (it sat on *"Loading Moxfield.
-This may take a minute…"* indefinitely).
+Partially verified against a live deck page on **2026-09-09**:
 
-Before trusting the overlay, open a deck page and paste the contents of
-[`tools/inspect-selectors.js`](tools/inspect-selectors.js) into the devtools console.
-It reports match counts for each candidate selector, and — when they come back zero —
-dumps the ancestor chain of a real card element so you can write correct ones.
+- `.img-card` — **88 matches.** It sits on the `<img>` itself, which also carries the
+  card name in `alt`. This is the anchor *and* the identity, and it is the only
+  selector the extension now uses.
+- `[class*="visual-spoiler"] a[href*="/cards/"]` and `a[href*="/cards/"] img` — **zero
+  matches.** Removed.
+- 78 badges injected from 88 images. Whether that gap is correct de-duplication
+  (double-faced cards sharing a tile) or genuinely dropped cards is **still open** —
+  see round 2 of the diagnostic.
 
-If the counts are all zero, update `CARD_HOST_SELECTORS` in `src/moxfield-dom.js`.
-Nothing else should need to change.
+### The `/cards/` trap
+
+Do not match card links with `a[href*="/cards/"]`. Moxfield's card-image **download
+buttons** point at:
+
+```
+https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?327820734&download=true
+```
+
+That contains `/cards/` but is an image asset. On the page inspected, 93 elements
+matched that selector and the sampled one was a download button. Unguarded, the slug
+parser turned it into the card name `Lze8j normal.jpg`, which would be sent to Scryfall
+and negative-cached. `cardPageSlug()` in `src/moxfield-dom.js` now requires a same-host
+`/cards/<slug>` path with no image extension.
+
+### Re-running the check
+
+Paste [`tools/inspect-selectors.js`](tools/inspect-selectors.js) into the devtools
+console on a deck page. It reports match counts, compares host-anchoring strategies,
+classifies every `/cards/` link as page vs asset, and shows where badges actually
+landed. If `.img-card` ever drops to zero, update `CARD_HOST_SELECTORS` in
+`src/moxfield-dom.js` — nothing else should need to change.
 
 ## Known limitations
 

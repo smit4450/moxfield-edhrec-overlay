@@ -17,11 +17,11 @@ globalThis.MoxfieldDom = (() => {
   const DONE_ATTR = 'data-edhrec-badge';
 
   // Ordered by confidence. Anything matching is treated as one card tile.
-  const CARD_HOST_SELECTORS = [
-    '.img-card',
-    '[class*="visual-spoiler"] a[href*="/cards/"]',
-    'a[href*="/cards/"] img',
-  ];
+  // Verified against a live deck page 2026-09-09: `.img-card` matched 88
+  // elements; the two link-based candidates that used to sit here matched zero
+  // and were removed. `.img-card` is on the <img> itself, which is also where
+  // the card name lives (alt), so it is both the anchor and the identity.
+  const CARD_HOST_SELECTORS = ['.img-card'];
 
   // Alt/title values Moxfield uses that are not card names.
   const JUNK_NAMES = new Set(['front', 'back', 'transform', 'flip', 'card', '']);
@@ -55,9 +55,7 @@ globalThis.MoxfieldDom = (() => {
       }
     }
 
-    const link = host.matches('a[href*="/cards/"]')
-      ? host
-      : host.querySelector('a[href*="/cards/"]') || host.closest('a[href*="/cards/"]');
+    const link = findCardPageLink(host);
     if (link) {
       const fromHref = nameFromCardHref(link.getAttribute('href'));
       if (isPlausibleName(fromHref)) return fromHref;
@@ -71,18 +69,58 @@ globalThis.MoxfieldDom = (() => {
   }
 
   /**
+   * Returns the slug of a genuine Moxfield card page, or null.
+   *
+   * Matching on `href*="/cards/"` alone is a trap: Moxfield's card-image
+   * download buttons point at
+   * `https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?...&download=true`,
+   * which contains `/cards/` but is an image asset. Left unguarded that yields
+   * the "card name" `Lze8j normal.jpg`, which then gets sent to Scryfall and
+   * negative-cached. Observed on a live deck page 2026-09-09, where 93 elements
+   * matched `a[href*="/cards/"]` and the sampled one was a download button.
+   *
+   * So: same host as the page, an exact /cards/<slug> path, no image extension.
+   */
+  function cardPageSlug(href) {
+    if (!href) return null;
+    let url;
+    try {
+      url = new URL(href, location.href);
+    } catch {
+      return null;
+    }
+    if (url.hostname !== location.hostname) return null;
+    const m = url.pathname.match(/^\/cards\/([^/]+)\/?$/);
+    if (!m) return null;
+    if (/\.(?:jpe?g|png|webp|gif|avif|svg)$/i.test(m[1])) return null;
+    return m[1];
+  }
+
+  /** The first descendant/ancestor link that is a real card page. */
+  function findCardPageLink(host) {
+    const candidates = [];
+    if (host.matches?.('a[href*="/cards/"]')) candidates.push(host);
+    candidates.push(...host.querySelectorAll('a[href*="/cards/"]'));
+    const up = host.closest?.('a[href*="/cards/"]');
+    if (up) candidates.push(up);
+    for (const a of candidates) {
+      if (cardPageSlug(a.getAttribute('href'))) return a;
+    }
+    return null;
+  }
+
+  /**
    * Moxfield card URLs look like /cards/YNRXG-extraplanar-lens — a short id,
    * a hyphen, then a slugified name. Recovering the name from a slug is lossy
    * (apostrophes, commas and hyphens in real names are all flattened), so this
    * is a last resort; Scryfall's fuzzy matching usually rescues it.
    */
   function nameFromCardHref(href) {
-    if (!href) return null;
-    const m = href.match(/\/cards\/([^/?#]+)/);
-    if (!m) return null;
-    const slug = m[1].replace(/^[A-Za-z0-9]{4,8}-/, '');
-    if (!slug || slug === m[1]) return null;
-    return slug.split('-').filter(Boolean).join(' ');
+    const slug = cardPageSlug(href);
+    if (!slug) return null;
+    const rest = slug.replace(/^[A-Za-z0-9]{4,8}-/, '');
+    if (!rest || rest === slug) return null;
+    return rest.split('-').filter(Boolean).join(' ');
   }
 
   /** Attach the badge, or replace one that React reconciled away. */
