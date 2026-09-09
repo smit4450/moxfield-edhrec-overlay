@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Moxfield EDHREC Overlay",
+  "version": "0.1.0",
+  "description": "Shows each card's EDHREC rank as a badge on Moxfield deck pages, using Scryfall's edhrec_rank field.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "moxfield-edhrec-overlay@afewgoodsmiths.com",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.scryfall.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "src/background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.moxfield.com/*"
+      ],
+      "js": [
+        "src/moxfield-dom.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/badge.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

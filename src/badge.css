@@ -1,0 +1,56 @@
+/*
+ * Badge styling.
+ *
+ * Scoped hard to .edhrec-* so nothing here can bleed into Moxfield's own
+ * layout. The only property applied to a Moxfield element is position:relative
+ * on the tile, which is needed to anchor the badge.
+ */
+
+.edhrec-host {
+  position: relative;
+}
+
+.edhrec-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 20;
+
+  padding: 1px 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+
+  font: 600 11px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-decoration: none;
+  color: #fff;
+
+  background: #4b5563;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  transition: transform 0.1s ease;
+}
+
+.edhrec-badge:hover {
+  transform: scale(1.08);
+  text-decoration: none;
+  color: #fff;
+}
+
+/* Rank tiers — lower rank means the card shows up in more decks. */
+.edhrec-tier-1 { background: #15803d; } /* top 100   */
+.edhrec-tier-2 { background: #2563eb; } /* top 500   */
+.edhrec-tier-3 { background: #7c3aed; } /* top 2000  */
+.edhrec-tier-4 { background: #4b5563; } /* everything else */
+
+.edhrec-unranked {
+  background: #374151;
+  color: #9ca3af;
+}
+
+/* Commander Game Changer list — Scryfall's game_changer flag. */
+.edhrec-game-changer {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 1px #fbbf24, 0 1px 3px rgba(0, 0, 0, 0.45);
+}
