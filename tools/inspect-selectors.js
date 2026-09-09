@@ -99,5 +99,72 @@
     console.log('%c✓ every badgeable tile has exactly one badge, and none landed elsewhere', 'color:#15803d');
   }
 
+  // --- Hover preview -------------------------------------------------------
+  // Hover a card first so the preview is populated, THEN run this.
+  console.group('hover preview');
+  const previews = [...document.querySelectorAll('.deckview-image-wrapper')];
+  console.log('.deckview-image-wrapper:', previews.length);
+  previews.forEach((pv, i) => {
+    const imgs = [...pv.querySelectorAll('img')];
+    const badge = pv.querySelector(':scope > .edhrec-badge');
+    console.log(`  [${i}]`, describe(pv));
+    console.log('      images:', imgs.map((im) => ({ alt: alt(im), src: (im.getAttribute('src') || '').slice(-40) })));
+    console.log('      asset ids:', imgs.map((im) => ((im.getAttribute('src') || '').match(/\/cards\/card-([A-Za-z0-9]+)-/) || [])[1]));
+    console.log('      badge:', badge ? `${badge.textContent} (${badge.dataset.cardName})` : 'NONE');
+  });
+  console.groupEnd();
+
+  // --- Text views (table / list) -------------------------------------------
+  // Run this again after switching view mode; the grid selectors will read 0
+  // and this section is what tells us how to anchor instead.
+  console.group('text views');
+  const isCardPage = (href) => {
+    try {
+      const u = new URL(href, location.href);
+      return (
+        u.hostname === location.hostname &&
+        /^\/cards\/[^/]+\/?$/.test(u.pathname) &&
+        !/\.(?:jpe?g|png|webp|gif|avif|svg)$/i.test(u.pathname)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const cardLinks = [...document.querySelectorAll('a[href*="/cards/"]')].filter((a) =>
+    isCardPage(a.getAttribute('href'))
+  );
+  console.log('real card-page links:', cardLinks.length, '| url:', location.href);
+
+  if (cardLinks.length) {
+    const a = cardLinks[0];
+    console.log('sample link text:', JSON.stringify(a.textContent.trim()));
+    console.log('sample href     :', a.getAttribute('href'));
+
+    // Walk up until we hit the element that repeats once per card — that is
+    // the row we would anchor a badge to.
+    let row = a;
+    for (let i = 0; i < 8 && row.parentElement; i++) {
+      const parent = row.parentElement;
+      const sig = (el) => el.tagName + '.' + String(el.className || '').trim().split(/\s+/).join('.');
+      const twins = [...parent.children].filter((c) => sig(c) === sig(row));
+      if (twins.length > 2) {
+        console.log(`repeating row (${twins.length} siblings):`, describe(row));
+        console.log('   parent          :', describe(parent));
+        console.log('   row is positioned:', getComputedStyle(row).position);
+        console.log('   row text        :', JSON.stringify(row.textContent.trim().slice(0, 70)));
+        break;
+      }
+      row = parent;
+    }
+
+    const chain = [];
+    for (let el = a, i = 0; el && i < 7; el = el.parentElement, i++) chain.push(describe(el));
+    console.log('ancestor chain (innermost first):');
+    chain.forEach((c, i) => console.log('  '.repeat(i) + '↳ ' + c));
+  } else {
+    console.warn('no card-page links here — text views may render names as plain text');
+  }
+  console.groupEnd();
+
   console.groupEnd();
 })();

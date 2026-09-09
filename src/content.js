@@ -39,6 +39,8 @@
   function buildBadge(name, info) {
     const el = document.createElement('a');
     el.className = 'edhrec-badge';
+    // Lets a live host tell whether it is already showing this card.
+    el.dataset.cardName = name;
     el.href = edhrecUrl(name);
     el.target = '_blank';
     el.rel = 'noopener noreferrer';
@@ -71,27 +73,44 @@
     }
     running = true;
     try {
-      const hosts = dom.findUnprocessedCards();
-      if (!hosts.length) return;
-
-      const pairs = [];
-      for (const host of hosts) {
+      const gridPairs = [];
+      for (const host of dom.findUnprocessedCards()) {
         const name = dom.extractCardName(host);
-        if (name) pairs.push([host, name]);
+        if (name) gridPairs.push([host, name]);
       }
-      if (!pairs.length) return;
 
-      const names = [...new Set(pairs.map(([, n]) => n))];
+      // The hover preview swaps cards in place instead of remounting, so it is
+      // re-derived every pass rather than marked done.
+      const livePairs = [];
+      for (const host of dom.findPreviewHosts()) {
+        const name = dom.extractPreviewName(host);
+        if (!name) {
+          dom.clearBadge(host);
+          continue;
+        }
+        if (dom.badgedName(host) === name) continue; // already showing this card
+        livePairs.push([host, name]);
+      }
+
+      if (!gridPairs.length && !livePairs.length) return;
+
+      const names = [...new Set([...gridPairs, ...livePairs].map(([, n]) => n))];
       const res = await api.runtime.sendMessage({ type: 'lookup-ranks', names });
       if (!res?.ok) {
         console.warn('[edhrec-overlay] lookup failed:', res?.error);
         return;
       }
 
-      for (const [host, name] of pairs) {
+      for (const [host, name] of gridPairs) {
         // The tile may have been unmounted while we were awaiting.
         if (!host.isConnected) continue;
         dom.attachBadge(host, buildBadge(name, res.ranks[name]));
+      }
+      for (const [host, name] of livePairs) {
+        if (!host.isConnected) continue;
+        // The pointer may have moved on to another card while we awaited.
+        if (dom.badgedName(host) === name) continue;
+        dom.attachBadge(host, buildBadge(name, res.ranks[name]), { live: true });
       }
     } finally {
       running = false;
@@ -108,16 +127,30 @@
     timer = setTimeout(scan, DEBOUNCE_MS);
   }
 
+  const isOurs = (n) => n.nodeType === 1 && n.classList?.contains('edhrec-badge');
+
   const observer = new MutationObserver((records) => {
-    // Ignore mutations we caused ourselves, or we'd loop forever.
-    const external = records.some((r) =>
-      [...r.addedNodes, ...r.removedNodes].some(
-        (n) => !(n.nodeType === 1 && n.classList?.contains('edhrec-badge'))
-      )
-    );
-    if (external) schedule();
+    for (const r of records) {
+      // Ignore mutations we caused ourselves, or we'd loop forever.
+      if (r.target?.closest?.('.edhrec-badge')) continue;
+      if (r.type === 'attributes') {
+        schedule();
+        return;
+      }
+      if ([...r.addedNodes, ...r.removedNodes].some((n) => !isOurs(n))) {
+        schedule();
+        return;
+      }
+    }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    // The preview replaces its image's src/alt in place rather than remounting,
+    // so without watching attributes its badge would never update on hover.
+    attributes: true,
+    attributeFilter: ['src', 'alt'],
+  });
   schedule();
 })();

@@ -40,11 +40,26 @@ globalThis.MoxfieldDom = (() => {
    *
    * Verified 2026-09-09: the sample-hand widget puts all 7 images directly in a
    * single `div.samplehand` (they collapse to one host under every anchoring
-   * strategy tried), and each sidebar preview holds a double-faced card's front
-   * and back. The sidebar is also just a magnified duplicate of a grid tile that
-   * already has its own badge. Skipped rather than mis-badged; see README.
+   * strategy tried), and each sidebar preview holds up to three images for one
+   * card (Transform / Front / Back).
+   *
+   * The preview is excluded here but NOT abandoned — it is badged by the live
+   * path below, which re-derives it on every pass because it swaps cards on
+   * hover without remounting.
    */
   const SKIP_CONTAINERS = '.samplehand, .deckview-image-wrapper';
+
+  /**
+   * The large card preview on the left, which follows the mouse.
+   *
+   * It cannot use the one-shot path: React swaps the image in place rather than
+   * remounting the wrapper, so a badge marked done would go stale and start
+   * reporting the rank of whatever card you hovered first.
+   */
+  const PREVIEW_HOST = '.deckview-image-wrapper';
+
+  /** Moxfield card-image URLs: assets.moxfield.net/cards/card-<cardId>-normal.jpg */
+  const CARD_ASSET_ID = /\/cards\/card-([A-Za-z0-9]+)-/;
 
   // Alt/title values Moxfield uses that are not card names. Verified present in
   // live alt text: "Transform", "Front", "Back" all appear on real images.
@@ -65,6 +80,71 @@ globalThis.MoxfieldDom = (() => {
       }
     }
     return out;
+  }
+
+  /** Preview hosts, returned every pass — never marked done. */
+  function findPreviewHosts(root = document) {
+    return [...root.querySelectorAll(PREVIEW_HOST)];
+  }
+
+  /**
+   * Card name shown in the hover preview.
+   *
+   * A single-faced preview carries the name in an image alt like everything
+   * else. A double-faced one does not — its images are labelled "Front",
+   * "Back" and "Transform" — so fall back to the Moxfield card id embedded in
+   * the image URL and resolve it against names harvested from the rest of the
+   * page, where the same id appears as a `vd-<id>` tile and in `/cards/<id>-…`
+   * links.
+   */
+  function extractPreviewName(host) {
+    for (const img of host.querySelectorAll('img')) {
+      const v = clean(img.getAttribute('alt'));
+      if (isPlausibleName(v)) return v;
+    }
+    const id = previewCardId(host);
+    return (id && cardNameById().get(id)) || null;
+  }
+
+  /** The Moxfield card id behind whatever the preview is currently showing. */
+  function previewCardId(host) {
+    const urls = [];
+    for (const img of host.querySelectorAll('img')) urls.push(img.getAttribute('src'));
+    for (const a of host.querySelectorAll('a[href]')) urls.push(a.getAttribute('href'));
+    for (const u of urls) {
+      const m = u && u.match(CARD_ASSET_ID);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  /**
+   * Map of Moxfield card id -> card name, harvested from the page.
+   *
+   * Two independent sources, both verified 2026-09-09: grid tiles carry
+   * `id="vd-<cardId>"` with the name in their image alt, and card links are
+   * `/cards/<cardId>-<slugified-name>`. Link text is preferred over the slug,
+   * which flattens apostrophes and commas.
+   */
+  function cardNameById(root = document) {
+    const map = new Map();
+
+    for (const tile of root.querySelectorAll(`${CARD_TILE}[id^="vd-"]`)) {
+      const id = tile.id.slice(3);
+      const name = clean(tile.querySelector('img')?.getAttribute('alt'));
+      if (id && isPlausibleName(name) && !map.has(id)) map.set(id, name);
+    }
+
+    for (const a of root.querySelectorAll('a[href*="/cards/"]')) {
+      const slug = cardPageSlug(a.getAttribute('href'));
+      const m = slug && slug.match(/^([A-Za-z0-9]+)-(.+)$/);
+      if (!m || map.has(m[1])) continue;
+      const text = clean(a.textContent);
+      const name = isPlausibleName(text) ? text : m[2].split('-').join(' ');
+      if (isPlausibleName(name)) map.set(m[1], name);
+    }
+
+    return map;
   }
 
   /**
@@ -149,13 +229,30 @@ globalThis.MoxfieldDom = (() => {
     return rest.split('-').filter(Boolean).join(' ');
   }
 
-  /** Attach the badge, or replace one that React reconciled away. */
-  function attachBadge(host, badgeEl) {
+  /**
+   * Attach the badge, or replace one that React reconciled away.
+   *
+   * `live` hosts (the hover preview) are deliberately not marked done, so each
+   * pass re-checks them and can swap the badge when the card changes.
+   */
+  function attachBadge(host, badgeEl, { live = false } = {}) {
     const existing = host.querySelector(':scope > .edhrec-badge');
     if (existing) existing.remove();
     host.classList.add('edhrec-host');
-    host.setAttribute(DONE_ATTR, '1');
+    if (live) host.classList.add('edhrec-preview-host');
+    else host.setAttribute(DONE_ATTR, '1');
     host.appendChild(badgeEl);
+  }
+
+  /** Name currently badged on a host, so a live host can skip redundant work. */
+  function badgedName(host) {
+    return host.querySelector(':scope > .edhrec-badge')?.dataset.cardName ?? null;
+  }
+
+  /** Remove a live host's badge — e.g. the preview showing something unreadable. */
+  function clearBadge(host) {
+    host.querySelector(':scope > .edhrec-badge')?.remove();
+    host.classList.remove('edhrec-preview-host');
   }
 
   /** Clear all badges and markers — used when the user toggles the overlay off. */
@@ -182,8 +279,12 @@ globalThis.MoxfieldDom = (() => {
   return {
     DONE_ATTR,
     findUnprocessedCards,
+    findPreviewHosts,
     extractCardName,
+    extractPreviewName,
     attachBadge,
+    badgedName,
+    clearBadge,
     removeAllBadges,
   };
 })();

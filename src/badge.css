@@ -12,8 +12,12 @@
 
 .edhrec-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  /* Bottom-left: the top-right corner of a Magic card is the mana cost, and a
+     badge there covers the one thing you most need to read at a glance. The
+     bottom-left is the set-symbol//collector area on modern frames, which is
+     the least costly thing to obscure. */
+  bottom: 4px;
+  left: 4px;
   z-index: 20;
 
   padding: 1px 5px;
@@ -53,4 +57,14 @@
 .edhrec-game-changer {
   border-color: #fbbf24;
   box-shadow: 0 0 0 1px #fbbf24, 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* The large hover preview on the left is several times the size of a grid tile,
+   so a 11px badge reads as a speck on it. */
+.edhrec-preview-host > .edhrec-badge {
+  bottom: 10px;
+  left: 10px;
+  padding: 3px 10px;
+  border-radius: 11px;
+  font-size: 15px;
 }

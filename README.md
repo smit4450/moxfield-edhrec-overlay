@@ -32,6 +32,24 @@ the rate limit holds no matter how many tabs are open.
 The badge also surfaces Scryfall's `game_changer` flag (the Commander Game Changer list)
 as a gold ring, and links out to the card's EDHREC page.
 
+It sits in the **bottom-left** of the card. The top-right is the mana cost, which is the
+one thing you most need to read at a glance; the bottom-left is the set-symbol area and
+the cheapest thing to cover.
+
+### The hover preview
+
+The large card preview on the left is badged too, but it cannot use the same path as the
+grid. React swaps the image in place rather than remounting the wrapper, so a badge
+marked done would go stale and keep reporting the first card you hovered. It is instead
+re-derived on every pass, and the MutationObserver watches `src`/`alt` attributes so a
+hover actually triggers one.
+
+Double-faced previews are a further wrinkle: their images are labelled `"Front"`,
+`"Back"` and `"Transform"` rather than with the card name. For those, the Moxfield card
+id is read out of the image URL (`card-Lze8j-normal.jpg` → `Lze8j`) and resolved against
+an id→name index harvested from the page, where the same id appears both as a
+`vd-<id>` grid tile and in `/cards/<id>-…` links.
+
 ### Files
 
 | File | Role |
@@ -130,9 +148,10 @@ should need to change.
 
 ## Known limitations
 
-- **Visual Spoiler only.** Table and list views need a different injection strategy — a
-  real sortable column means injecting a header cell plus every row, and fighting React's
-  reconciliation. See *Roadmap*.
+- **Grid and hover preview only; table and list views are not covered yet.** Those
+  render card names as rows rather than images, so they need a different anchor and an
+  inline badge rather than a corner one. `tools/inspect-selectors.js` has a *text views*
+  section that harvests the row structure — run it in each view mode.
 - **`User-Agent` is out of our hands — and Scryfall enforces it.** Scryfall now rejects
   requests carrying a default HTTP-library User-Agent with `HTTP 400 / rule:
   generic_user_agent`. Extensions *cannot* set that header — `User-Agent` is a
@@ -149,7 +168,8 @@ should need to change.
   means injecting our own wrappers, which means fighting React's reconciliation. The
   sidebar preview is skipped for a different reason: it is a magnified duplicate of a
   grid tile that already carries its own badge, and for double-faced cards it holds two
-  images whose alts are just `"Front"` and `"Back"`.
+  images whose alts are just `"Front"` and `"Back"`. The preview is no longer skipped —
+  it has its own live path — but the sample hand still is.
 - **Rank only, not full EDHREC data.** Synergy %, per-commander inclusion rate, and salt
   score are *not* in Scryfall. They live behind `json.edhrec.com/pages`, which is
   undocumented, unofficial, keyless, Cloudflare-fronted, and can break without notice.
@@ -159,6 +179,7 @@ should need to change.
 ## Roadmap
 
 - [x] Verify selectors against a live page
+- [x] Badge the hover preview on the left
 - [ ] Support table + list views
 - [ ] Badge the sample-hand widget (needs injected per-card wrappers)
 - [ ] **Sort a deck by EDHREC rank** — the real differentiator, since Moxfield won't
