@@ -623,3 +623,62 @@
   background: #3a1d1d;
   color: #fca5a5;
 }
+
+/* Four tabs in 372px: let the labels shrink rather than wrap. */
+.edhrec-panel-tab {
+  min-width: 0;
+  padding: 5px 6px;
+  font-size: 11px;
+}
+
+/* A combo: the card to add, then the line it completes and what it produces. */
+.edhrec-panel-combo {
+  padding: 5px 0 7px;
+  border-bottom: 1px solid #1b2330;
+}
+
+.edhrec-panel-combo:last-child {
+  border-bottom: none;
+}
+
+.edhrec-panel-combolines {
+  margin: 2px 0 0 21px;
+  color: #93a1b5;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.edhrec-panel-combo .edhrec-panel-chips {
+  margin: 4px 0 0 21px;
+}
+
+.edhrec-panel-avgstat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #16263a;
+}
+
+.edhrec-panel-avgstat .edhrec-panel-saltnum {
+  color: #93c5fd;
+}
+
+.edhrec-panel-avgstat .edhrec-panel-saltlbl {
+  color: #a8c2de;
+}
+
+/* Chips are appended with no whitespace between them, so inline layout gives
+   the line no break opportunity and it overflows. Flex-wrap instead. */
+.edhrec-panel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Nothing in the drawer should scroll sideways. */
+.edhrec-panel-body {
+  overflow-x: hidden;
+}

@@ -248,7 +248,7 @@ try {
       `(${money.withPrice}/${money.cells}: ${money.sample.join(' ')})`
     );
     // --- Cuts tab -----------------------------------------------------------
-    await page.getByRole('button', { name: /^Cuts/ }).first().click();
+    await page.locator('.edhrec-panel-tab', { hasText: 'Cuts' }).first().click();
     await page.waitForTimeout(2500);
     const cuts = await page.evaluate(() => {
       const sections = [...document.querySelectorAll('.edhrec-panel-section')].map((s) => ({
@@ -286,6 +286,54 @@ try {
     check(ascending && cuts.synOrder.length > 1, 'cuts sorted worst-synergy first', `(${cuts.synOrder.slice(0, 4).join(', ')})`);
     check(Boolean(cuts.salt), 'deck salt total shown', cuts.salt ? `(${cuts.salt.slice(0, 44)})` : '');
 
+    // --- Combos (Commander Spellbook) -----------------------------------------
+    await page.locator('.edhrec-panel-tab', { hasText: 'Combos' }).first().click();
+    await page.waitForTimeout(7000);
+    const combo = await page.evaluate(() => {
+      const deck = new Set(
+        [...document.querySelectorAll('.edhrec-badge')]
+          .map((b) => (b.dataset.cardName || '').split('//')[0].trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const rows = [...document.querySelectorAll('.edhrec-panel-combo')];
+      const needed = rows
+        .map((r) => r.querySelector('.edhrec-panel-name')?.textContent?.trim())
+        .filter(Boolean);
+      return {
+        heading: document.querySelector('.edhrec-panel-h1')?.textContent,
+        rows: rows.length,
+        withLine: rows.filter((r) => r.querySelector('.edhrec-panel-combolines')).length,
+        // A card you must ADD cannot be one you already have.
+        alreadyHave: needed.filter((n) => deck.has(n.split('//')[0].trim().toLowerCase())),
+        sample: rows[0]?.innerText.replace(/\s+/g, ' ').slice(0, 90) || '',
+      };
+    });
+    check(combo.rows > 0, 'combos load from Commander Spellbook', `(${combo.rows} rows)`);
+    check(combo.withLine === combo.rows, 'every combo shows the line it completes', `(${combo.withLine}/${combo.rows})`);
+    check(
+      combo.alreadyHave.length === 0,
+      'no combo asks for a card already in the deck',
+      combo.alreadyHave.length ? `(${combo.alreadyHave.slice(0, 3).join(', ')})` : ''
+    );
+    console.log('   e.g.', combo.sample);
+
+    // --- Average decklist -----------------------------------------------------
+    await page.locator('.edhrec-panel-tab', { hasText: 'Avg' }).first().click();
+    await page.waitForTimeout(6000);
+    const avg = await page.evaluate(() => ({
+      heading: document.querySelector('.edhrec-panel-h1')?.textContent,
+      stat: document.querySelector('.edhrec-panel-avgstat')?.innerText.replace(/\s+/g, ' ') || null,
+      sections: [...document.querySelectorAll('.edhrec-panel-title')].map((t) => t.textContent),
+    }));
+    check(Boolean(avg.stat), 'average-list comparison loads', avg.stat ? `(${avg.stat.slice(0, 48)})` : '');
+    check(
+      avg.sections.includes('In the average, not yours') && avg.sections.includes('Yours, not in the average'),
+      'both directions of the comparison shown',
+      `(${avg.sections.join(' / ')})`
+    );
+
+    await page.locator('.edhrec-panel-tab', { hasText: 'Add' }).first().click();
+    await page.waitForTimeout(600);
     await launcher.click(); // close again so it cannot occlude later checks
     await page.waitForTimeout(400);
   }

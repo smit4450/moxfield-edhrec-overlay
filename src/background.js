@@ -46,6 +46,8 @@ async function purgeStaleCacheVersions() {
     ['edhrec:', EDHREC_PREFIX],
     ['salt:', SALT_KEY],
     ['price:', PRICE_PREFIX],
+    ['combos:', COMBO_PREFIX],
+    ['average:', AVERAGE_PREFIX],
   ];
   const all = await api.storage.local.get(null);
   const dead = Object.keys(all).filter((k) =>
@@ -529,6 +531,122 @@ function indexPrices(cards) {
   return byName;
 }
 
+// ---------------------------------------------------------------------------
+// Commander Spellbook and EDHREC's average decklist
+// ---------------------------------------------------------------------------
+
+const SPELLBOOK_COMBOS = 'https://backend.commanderspellbook.com/find-my-combos/';
+const EDHREC_AVERAGE = 'https://json.edhrec.com/pages/average-decks/';
+
+const COMBO_VERSION = 'v1';
+const COMBO_PREFIX = `combos:${COMBO_VERSION}:`;
+const AVERAGE_PREFIX = `average:${COMBO_VERSION}:`;
+const COMBO_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Keep the stored shape small; the raw reply is hundreds of KB. */
+const MAX_COMBOS = 40;
+
+/** Stable key for a decklist, so editing the deck invalidates its combos. */
+function deckHash(names) {
+  const joined = [...names].map((n) => n.toLowerCase()).sort().join('|');
+  let h = 5381;
+  for (let i = 0; i < joined.length; i++) h = ((h << 5) + h + joined.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + '-' + joined.length.toString(36);
+}
+
+const comboName = (u) => u?.card?.name || u?.name || null;
+const featureName = (p) => p?.feature?.name || p?.name || null;
+
+/**
+ * Combos in this deck, and combos it is a single card away from.
+ *
+ * Commander Spellbook is open and needs no key. The payload shape is
+ * `{commanders: [{card}], main: [{card}]}` - passing bare strings is rejected.
+ *
+ * Only a distilled form is cached: the raw reply runs to hundreds of KB, and
+ * all the panel shows is which cards, what they produce, and how popular the
+ * line is.
+ */
+async function lookupCombos(commanders, main) {
+  const all = [...(commanders || []), ...(main || [])].filter(Boolean);
+  if (!all.length) return { included: [], almost: [] };
+
+  const key = COMBO_PREFIX + deckHash(all);
+  const cached = await readJsonCache(key, COMBO_TTL_MS);
+  if (cached?.included && cached?.almost) return cached;
+
+  const res = await fetch(SPELLBOOK_COMBOS, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      commanders: (commanders || []).map((card) => ({ card })),
+      main: (main || []).map((card) => ({ card })),
+    }),
+  });
+  if (!res.ok) throw new Error(`spellbook ${res.status}`);
+
+  const r = (await res.json()).results || {};
+  const have = new Set(all.map((n) => frontFace(n).toLowerCase()));
+
+  const distil = (v) => {
+    const cards = (v.uses || []).map(comboName).filter(Boolean);
+    return {
+      id: v.id,
+      cards,
+      produces: (v.produces || []).map(featureName).filter(Boolean),
+      popularity: v.popularity ?? 0,
+      // What you would have to add. Computed here rather than trusted from the
+      // reply, so it always agrees with the deck we actually sent.
+      missing: cards.filter((n) => !have.has(frontFace(n).toLowerCase())),
+    };
+  };
+
+  const bypop = (a, b) => b.popularity - a.popularity;
+  const value = {
+    included: (r.included || []).map(distil).sort(bypop).slice(0, MAX_COMBOS),
+    almost: (r.almostIncluded || [])
+      .map(distil)
+      .filter((c) => c.missing.length === 1)
+      .sort(bypop)
+      .slice(0, MAX_COMBOS),
+  };
+  await writeJsonCache(key, value);
+  return value;
+}
+
+/**
+ * EDHREC's average decklist for this commander, as a flat list of card names.
+ *
+ * The payload nests cards by type as [name, quantity] pairs under
+ * `deck.cards`, which is why this is not just a map over an array.
+ */
+async function averageDeck(commanders) {
+  const slugs = (commanders || []).map(edhrecSlug).filter(Boolean);
+  if (!slugs.length) return null;
+  const candidates = slugs.length > 1 ? [slugs.join('-'), [...slugs].reverse().join('-')] : [slugs[0]];
+
+  for (const slug of candidates) {
+    const key = AVERAGE_PREFIX + slug;
+    const cached = await readJsonCache(key, EDHREC_TTL_MS);
+    if (Array.isArray(cached)) return cached;
+    try {
+      const res = await fetch(`${EDHREC_AVERAGE}${slug}.json`, { headers: { Accept: 'application/json' } });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const names = Object.values(json?.deck?.cards || {})
+        .flat()
+        .map((entry) => (Array.isArray(entry) ? entry[0] : entry))
+        .filter(Boolean);
+      if (!names.length) continue;
+      await writeJsonCache(key, names);
+      return names;
+    } catch (err) {
+      console.warn('[edhrec-overlay] average deck failed:', slug, err.message);
+    }
+  }
+  return null;
+}
+
 purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -537,6 +655,20 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .then((ranks) => sendResponse({ ok: true, ranks }))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true; // keep the message channel open for the async response
+  }
+
+  if (msg?.type === 'lookup-combos') {
+    lookupCombos(msg.commanders, msg.main)
+      .then((data) => sendResponse({ ok: true, ...data }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (msg?.type === 'lookup-average') {
+    averageDeck(msg.commanders)
+      .then((cards) => sendResponse({ ok: true, cards: cards || [] }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
   }
 
   if (msg?.type === 'lookup-prices') {

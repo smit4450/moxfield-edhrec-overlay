@@ -36,8 +36,16 @@ globalThis.EdhrecPanel = (() => {
     mismatch: null,
   };
 
-  /** "add" = recommendations not in the deck; "cuts" = the deck, worst first. */
+  /** add = what to put in; cuts = what to take out; combos; avg = vs the average list. */
   let tab = 'add';
+
+  // Combos and the average decklist are each one request, fetched only when
+  // their tab is first opened rather than on every page load.
+  let combos = null;
+  let average = null;
+  let combosKey = null;
+  let averageKey = null;
+  let extraPending = false;
 
   /**
    * Prices, fetched lazily for whatever is on screen rather than for all ~216
@@ -139,6 +147,54 @@ globalThis.EdhrecPanel = (() => {
     }
     hits.sort((a, b) => b.salt - a.salt);
     return { hits, total };
+  }
+
+  /** Deck minus the commander, which Commander Spellbook wants passed separately. */
+  function mainDeckNames() {
+    const cmd = norm(state.commander || '');
+    return state.deckCards.map((c) => c.name).filter((n) => norm(n) !== cmd);
+  }
+
+  /** One request each, on first use of their tab. */
+  function ensureExtras() {
+    if (extraPending || !state.deckCards.length) return;
+    const key = `${state.commander}|${state.deckCards.length}`;
+
+    if (tab === 'combos' && combosKey !== key) {
+      extraPending = true;
+      Promise.resolve(
+        api.runtime.sendMessage({
+          type: 'lookup-combos',
+          commanders: [state.commander].filter(Boolean),
+          main: mainDeckNames(),
+        })
+      )
+        .then((res) => {
+          if (!res?.ok) return;
+          combos = { included: res.included || [], almost: res.almost || [] };
+          combosKey = key;
+          render();
+        })
+        .catch((err) => console.warn('[edhrec-overlay] combo lookup failed:', err.message))
+        .finally(() => {
+          extraPending = false;
+        });
+    }
+
+    if (tab === 'avg' && averageKey !== key && state.commander) {
+      extraPending = true;
+      Promise.resolve(api.runtime.sendMessage({ type: 'lookup-average', commanders: [state.commander] }))
+        .then((res) => {
+          if (!res?.ok) return;
+          average = res.cards || [];
+          averageKey = key;
+          render();
+        })
+        .catch((err) => console.warn('[edhrec-overlay] average deck failed:', err.message))
+        .finally(() => {
+          extraPending = false;
+        });
+    }
   }
 
   /** Ask the background for any on-screen card whose price we do not have yet. */
@@ -443,6 +499,112 @@ globalThis.EdhrecPanel = (() => {
     refreshFooter();
   }
 
+  /** A card row plus the combo line that explains why it is here. */
+  function comboRow(v, missingCard) {
+    const base = missingCard
+      ? state.stats[missingCard.toLowerCase()] || { name: missingCard }
+      : null;
+    const wrap = el('div', 'edhrec-panel-combo');
+    if (base) wrap.append(buildRow(base));
+    wrap.append(el('div', 'edhrec-panel-combolines', v.cards.join('  +  ')));
+    if (v.produces.length) {
+      const outs = el('div', 'edhrec-panel-chips');
+      for (const p of v.produces.slice(0, 3)) outs.append(el('span', 'edhrec-panel-chip', p));
+      wrap.append(outs);
+    }
+    return wrap;
+  }
+
+  function renderCombos(body) {
+    if (!combos) {
+      body.append(el('div', 'edhrec-panel-sub', 'Looking up combos…'));
+      return;
+    }
+    const { included, almost } = combos;
+    if (!included.length && !almost.length) {
+      body.append(el('div', 'edhrec-panel-sub', 'Commander Spellbook knows no combos for this list.'));
+      return;
+    }
+
+    if (almost.length) {
+      const wrap = el('div', 'edhrec-panel-section');
+      const head = el('div', 'edhrec-panel-head');
+      head.append(el('span', 'edhrec-panel-title', 'One card away'));
+      head.append(el('span', 'edhrec-panel-count', String(almost.length)));
+      wrap.append(head);
+      wrap.append(el('div', 'edhrec-panel-sub', 'Add the card shown and the combo comes online.'));
+      for (const v of almost.slice(0, 15)) wrap.append(comboRow(v, v.missing[0]));
+      body.append(wrap);
+      // These are add candidates like any other, so they price and copy too.
+      ensurePrices(almost.slice(0, 15).map((v) => state.stats[v.missing[0].toLowerCase()] || { name: v.missing[0] }));
+    }
+
+    if (included.length) {
+      const wrap = el('div', 'edhrec-panel-section');
+      const head = el('div', 'edhrec-panel-head');
+      head.append(el('span', 'edhrec-panel-title', 'Already in your deck'));
+      head.append(el('span', 'edhrec-panel-count', String(included.length)));
+      wrap.append(head);
+      for (const v of included.slice(0, 15)) wrap.append(comboRow(v, null));
+      body.append(wrap);
+    }
+
+    const foot = el('div', 'edhrec-panel-foot');
+    body.append(foot);
+    refreshFooter();
+  }
+
+  function renderAverage(body) {
+    if (!state.commander) {
+      body.append(el('div', 'edhrec-panel-sub', 'No commander detected, so there is no average list to compare against.'));
+      return;
+    }
+    if (!average) {
+      body.append(el('div', 'edhrec-panel-sub', 'Loading the average decklist…'));
+      return;
+    }
+
+    const avgSet = new Set(average.map(norm));
+    const shared = [...state.deck].filter((n) => avgSet.has(n));
+    const missing = average.filter((n) => !state.deck.has(norm(n)));
+    const yoursOnly = state.deckCards.filter((c) => !avgSet.has(norm(c.name)));
+
+    const stat = el('div', 'edhrec-panel-avgstat');
+    stat.append(el('span', 'edhrec-panel-saltnum', String(shared.length)));
+    stat.append(
+      el('span', 'edhrec-panel-saltlbl', `of EDHREC’s ${average.length}-card average list are in your deck`)
+    );
+    body.append(stat);
+
+    const sec = (title, cards, note) => {
+      if (!cards.length) return;
+      const wrap = el('div', 'edhrec-panel-section');
+      const head = el('div', 'edhrec-panel-head');
+      head.append(el('span', 'edhrec-panel-title', title));
+      head.append(el('span', 'edhrec-panel-count', String(cards.length)));
+      wrap.append(head);
+      if (note) wrap.append(el('div', 'edhrec-panel-sub', note));
+      for (const c of cards.slice(0, 15)) wrap.append(buildRow(c));
+      body.append(wrap);
+      ensurePrices(cards.slice(0, 15));
+    };
+
+    sec(
+      'In the average, not yours',
+      missing.map((n) => state.stats[n.toLowerCase()] || { name: n }),
+      'The consensus picks you have passed on.'
+    );
+    sec(
+      'Yours, not in the average',
+      yoursOnly.map((c) => ({ ...c, ...(state.stats[c.name.toLowerCase()] || {}) })),
+      'What makes this list yours rather than everyone’s.'
+    );
+
+    const foot = el('div', 'edhrec-panel-foot');
+    body.append(foot);
+    refreshFooter();
+  }
+
   function render() {
     if (!state.lists.length) {
       // EDHREC is the one fragile dependency; with no data there is nothing to
@@ -466,14 +628,23 @@ globalThis.EdhrecPanel = (() => {
     if (!open) return;
 
     const head = el('div', 'edhrec-panel-topbar');
-    head.append(el('div', 'edhrec-panel-h1', tab === 'add' ? 'Not in this deck' : 'Trim this deck'));
+    const HEADINGS = {
+      add: 'Not in this deck',
+      cuts: 'Trim this deck',
+      combos: 'Combos',
+      avg: 'Versus the average list',
+    };
+    head.append(el('div', 'edhrec-panel-h1', HEADINGS[tab] || ''));
     if (state.commander) head.append(el('div', 'edhrec-panel-sub', `EDHREC · ${state.commander}`));
     body.append(head);
 
     const tabs = el('div', 'edhrec-panel-tabs');
     tabs.append(tabButton('add', 'Add', total));
     tabs.append(tabButton('cuts', 'Cuts', state.deckCards.length || null));
+    tabs.append(tabButton('combos', 'Combos', combos ? combos.almost.length : null));
+    tabs.append(tabButton('avg', 'Avg', average ? average.length : null));
     body.append(tabs);
+    ensureExtras();
 
     if (state.mismatch) {
       body.append(
@@ -486,7 +657,9 @@ globalThis.EdhrecPanel = (() => {
     }
 
     if (tab === 'add') renderAdd(body, sections, total);
-    else renderCuts(body);
+    else if (tab === 'cuts') renderCuts(body);
+    else if (tab === 'combos') renderCombos(body);
+    else renderAverage(body);
   }
 
   /** Called by content.js whenever the commander data or deck contents change. */

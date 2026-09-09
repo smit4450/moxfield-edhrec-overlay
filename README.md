@@ -180,6 +180,43 @@ with a list of the salty cards in a given deck"*. Only EDHREC's global top-100 s
 can contribute, and the label says so — a total that silently ignored most of the card
 pool would be worse than showing none.
 
+### Combos, via Commander Spellbook
+
+The **Combos** tab answers the question rank and synergy cannot: *what does this card
+turn on?*
+
+[Commander Spellbook][spellbook] is open, needs no key, and takes
+`{commanders: [{card}], main: [{card}]}` — bare strings are rejected. One request per
+deck returns combos already assembled and, more usefully, the ones a **single card**
+away:
+
+```
+Niv-Mizzet, Parun    -6.9%  18.5%   $5.70
+  Curiosity + Niv-Mizzet, Parun
+  ( Infinite draw triggers ) ( Infinite card draw ) ( Near-infinite damage )
+```
+
+The missing card is rendered as an ordinary recommendation row, so it prices, previews
+and copies like anything else in the Add tab. Only combos missing exactly one card are
+shown — "you are five cards from this" is not a suggestion. Its `missing` list is
+recomputed locally against the deck we sent rather than trusted from the reply, so it
+always agrees with what is actually on the page.
+
+Only a distilled form is cached: the raw reply runs to hundreds of KB, while all the
+panel needs is the cards, what they produce, and how popular the line is. The cache key
+is a hash of the decklist, so editing the deck invalidates it.
+
+### Versus the average list
+
+The **Avg** tab answers [Moxfield's 31-vote request][nolt466] to compare a deck against
+EDHREC's average decklist, and shows both directions:
+
+> **25** of EDHREC's 80-card average list are in your deck
+> · In the average, not yours — 55 · Yours, not in the average — 42
+
+The second direction is the interesting one, and the reason this is not just the Add tab
+again: it is what makes the list yours rather than everyone's.
+
 ### Pricing the printing you would actually buy
 
 The obvious implementation is wrong, and quietly so. Asking Scryfall for the id EDHREC
@@ -421,9 +458,8 @@ same-host `/cards/<slug>` path with no image extension.
 - [x] Per-commander synergy, inclusion, list tags and salt via `json.edhrec.com`
 - [x] Show EDHREC recommendations not yet in the deck
 - [x] Cuts tab: the deck sorted worst-first, plus a deck salt total
-- [ ] Compare against EDHREC's average decklist ([31 votes](https://moxfield.nolt.io/466))
-- [ ] Combos via Commander Spellbook — `find-my-combos` returns combos in the deck and
-      ones you are a single card away from
+- [x] Compare against EDHREC's average decklist ([31 votes](https://moxfield.nolt.io/466))
+- [x] Combos via Commander Spellbook, including ones a single card away
 - [ ] Options page: tier thresholds, badge position, toggle EDHREC enrichment off
 
 ## A note on scope and etiquette
@@ -450,6 +486,8 @@ Not produced by or endorsed by Wizards of the Coast, Moxfield, EDHREC, or Scryfa
 [lens]: https://fccmtgdev.github.io/collectionlens/
 [nolt706]: https://moxfield.nolt.io/706
 [nolt304]: https://moxfield.nolt.io/304
+[nolt466]: https://moxfield.nolt.io/466
+[spellbook]: https://commanderspellbook.com/
 [cards]: https://scryfall.com/docs/api/cards
 [limits]: https://scryfall.com/docs/api/rate-limits
 [bulk]: https://scryfall.com/docs/api/bulk-data
