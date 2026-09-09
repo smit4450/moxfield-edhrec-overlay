@@ -54,7 +54,24 @@ globalThis.EdhrecPanel = (() => {
 
   /** Foil-only cards have a null `usd`, so fall back rather than show nothing. */
   const usdOf = (p) => (p ? (p.usd ?? p.foil ?? null) : null);
-  const money = (n) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
+  const money = (n) => (n >= 100 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(2)}`);
+
+  /**
+   * Price bands, in dollars. Card prices span four orders of magnitude, so a
+   * single "expensive" colour puts a $20 card and a $1,600 card in the same
+   * bucket. These are the boundaries a Commander player actually thinks in:
+   * pocket change, cheap, a real pick, an investment, and so on up.
+   *
+   * The ramp deliberately runs dim -> neutral -> warm -> hot rather than
+   * green -> red: green already means positive synergy one column to the left,
+   * and a cheap card should recede rather than announce itself.
+   */
+  const PRICE_BANDS = [1, 5, 20, 50, 100, 500];
+  function priceTier(usd) {
+    let i = 0;
+    while (i < PRICE_BANDS.length && usd >= PRICE_BANDS[i]) i++;
+    return i; // 0 (under $1) .. 6 ($500+)
+  }
   const norm = (s) => s.split('//')[0].trim().toLowerCase();
 
   /** The EDHREC cardview id is a Scryfall card id, so images need no API call. */
@@ -64,14 +81,17 @@ globalThis.EdhrecPanel = (() => {
   /** Ask the background for any on-screen card whose price we do not have yet. */
   function ensurePrices(cards) {
     if (pricesPending) return;
-    const need = cards.filter((c) => c.id && !prices.has(c.name)).slice(0, 75);
+    const need = cards.filter((c) => !prices.has(c.name)).slice(0, 75);
     if (!need.length) return;
 
     pricesPending = true;
-    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-prices', ids: need.map((c) => c.id) }))
+    // By name, not by EDHREC's card id: those ids point at arbitrary printings
+    // (its Volcanic Island is Beta, unpriced in USD), and the useful number is
+    // the cheapest printing you could actually buy.
+    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-prices', names: need.map((c) => c.name) }))
       .then((res) => {
         if (!res?.ok) return;
-        for (const c of need) prices.set(c.name, res.prices[c.id] ?? null);
+        for (const c of need) prices.set(c.name, res.prices[c.name] ?? null);
         render();
       })
       .catch((err) => console.warn('[edhrec-overlay] price lookup failed:', err.message))
@@ -146,6 +166,7 @@ globalThis.EdhrecPanel = (() => {
     // as a rendering gap, not as "no price known".
     const price = el('div', 'edhrec-panel-price', usd == null ? '—' : money(usd));
     if (usd == null) price.classList.add('is-unknown');
+    else price.classList.add(`edhrec-price-t${priceTier(usd)}`);
     if (usd != null && usd >= 20) price.classList.add('is-pricey');
     row.append(price);
 

@@ -415,67 +415,118 @@ async function edhrecForDeck(commanderNames) {
  * rather than showing nothing.
  */
 /**
- * Scryfall rejects the WHOLE batch with HTTP 400 if any single `id` is not a
- * valid UUID - not just that identifier. One malformed id from EDHREC would
- * therefore cost prices for up to 75 cards, so ids are validated here first.
- * Verified against the live API: a well-formed but version-0 UUID still 400s.
+ * USD price per card NAME, meaning the cheapest printing you could actually buy.
+ *
+ * The obvious implementation - ask Scryfall for the id EDHREC gives us - is
+ * wrong, and quietly so. Those ids point at arbitrary printings: EDHREC's
+ * Volcanic Island is Limited Edition Beta, which carries no USD price at all
+ * and a EUR price of 10,577. Its Island, Mountain and Steam Vents are a promo
+ * set with no prices either. Asking by name is no better: Scryfall's default
+ * printing for Volcanic Island is Vintage Masters, an MTGO-only set.
+ *
+ * So: batch by name for the common case, then fall back to a per-card search
+ * over all printings ordered by price for anything still unpriced. That turns
+ * Volcanic Island into $938.50 (Revised) and Island into $0.06, which is the
+ * number someone deciding whether to add a card actually needs.
  */
-const SCRYFALL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SCRYFALL_SEARCH = 'https://api.scryfall.com/cards/search';
 
-async function lookupPrices(ids) {
-  const unique = [...new Set((ids || []).filter((id) => SCRYFALL_ID.test(id || '')))];
+// The fallback costs one request per card, so bound it. Anything left over is
+// picked up by the next call, and the cache means it is paid at most once a day.
+const MAX_PRICE_FALLBACKS = 30;
+
+const priceKey = (name) => PRICE_PREFIX + name.trim().toLowerCase();
+
+/** Cheapest printing with a USD price, or null if the card has never had one. */
+async function cheapestPrinting(name) {
+  const q = encodeURIComponent(`!"${name.replace(/"/g, '')}" unique:prints`);
+  try {
+    const res = await enqueue(() =>
+      fetch(`${SCRYFALL_SEARCH}?q=${q}&order=usd&dir=asc`, { headers: { Accept: 'application/json' } })
+    );
+    // 404 simply means nothing matched; that is an answer, not a failure.
+    if (!res.ok) return null;
+    const body = await res.json();
+    const hit = (body.data || []).find((c) => c.prices?.usd != null);
+    return hit ? Number(hit.prices.usd) : null;
+  } catch (err) {
+    console.warn('[edhrec-overlay] price fallback failed:', name, err.message);
+    return null;
+  }
+}
+
+async function lookupPrices(names) {
+  const unique = [...new Set((names || []).filter(Boolean).map((n) => n.trim()))];
   if (!unique.length) return {};
 
-  const keys = unique.map((id) => PRICE_PREFIX + id);
-  const stored = await api.storage.local.get(keys);
+  const stored = await api.storage.local.get(unique.map(priceKey));
   const now = Date.now();
   const result = {};
   const stale = [];
-
-  for (const id of unique) {
-    const hit = stored[PRICE_PREFIX + id];
-    if (hit && now - hit.ts < PRICE_TTL_MS) result[id] = hit.value;
-    else stale.push(id);
+  for (const name of unique) {
+    const hit = stored[priceKey(name)];
+    if (hit && now - hit.ts < PRICE_TTL_MS) result[name] = hit.value;
+    else stale.push(name);
   }
   if (!stale.length) return result;
 
-  const patch = {};
+  // Pass 1: batch by name. Multi-face names are asked for by front face, and
+  // the reply indexed under every alias, exactly as the rank lookup does.
+  const needFallback = [];
   for (const batch of chunk(stale, MAX_IDENTIFIERS)) {
-    let cards;
+    let found;
     try {
-      cards = await enqueue(async () => {
+      found = await enqueue(async () => {
         const res = await fetch(SCRYFALL_COLLECTION, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ identifiers: batch.map((id) => ({ id })) }),
+          body: JSON.stringify({ identifiers: batch.map((n) => ({ name: frontFace(n) })) }),
         });
         if (!res.ok) throw new Error(`scryfall ${res.status}`);
-        return (await res.json()).data || [];
+        return indexPrices((await res.json()).data || []);
       });
     } catch (err) {
       console.warn('[edhrec-overlay] price batch failed:', err.message);
       continue;
     }
-
-    const seen = new Set();
-    for (const card of cards) {
-      const usd = card.prices?.usd ?? null;
-      const foil = card.prices?.usd_foil ?? null;
-      const value = { usd: usd == null ? null : Number(usd), foil: foil == null ? null : Number(foil) };
-      result[card.id] = value;
-      patch[PRICE_PREFIX + card.id] = { value, ts: now };
-      seen.add(card.id);
-    }
-    // Cache the misses too, or an unpriceable card is re-requested forever.
-    for (const id of batch) {
-      if (seen.has(id)) continue;
-      result[id] = null;
-      patch[PRICE_PREFIX + id] = { value: null, ts: now };
+    for (const name of batch) {
+      const usd = found.get(name.toLowerCase()) ?? found.get(frontFace(name).toLowerCase()) ?? null;
+      if (usd == null) needFallback.push(name);
+      else result[name] = { usd };
     }
   }
 
+  // Pass 2: whatever the default printing could not price.
+  for (const name of needFallback.slice(0, MAX_PRICE_FALLBACKS)) {
+    const usd = await cheapestPrinting(frontFace(name));
+    result[name] = usd == null ? null : { usd };
+  }
+
+  const patch = {};
+  for (const name of stale) {
+    if (name in result) patch[priceKey(name)] = { value: result[name], ts: now };
+  }
   if (Object.keys(patch).length) await api.storage.local.set(patch);
   return result;
+}
+
+/** Index a price response under full name, each face name, and the front face. */
+function indexPrices(cards) {
+  const byName = new Map();
+  const put = (key, usd) => {
+    const k = (key || '').trim().toLowerCase();
+    if (k && !byName.has(k)) byName.set(k, usd);
+  };
+  const priced = cards.map((c) => ({
+    card: c,
+    usd: c.prices?.usd != null ? Number(c.prices.usd) : c.prices?.usd_foil != null ? Number(c.prices.usd_foil) : null,
+  }));
+  for (const { card, usd } of priced) put(card.name, usd);
+  for (const { card, usd } of priced) {
+    for (const face of card.card_faces || []) put(face.name, usd);
+    put(frontFace(String(card.name)), usd);
+  }
+  return byName;
 }
 
 purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
@@ -489,7 +540,7 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.type === 'lookup-prices') {
-    lookupPrices(msg.ids)
+    lookupPrices(msg.names)
       .then((prices) => sendResponse({ ok: true, prices }))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;

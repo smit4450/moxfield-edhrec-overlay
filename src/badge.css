@@ -508,8 +508,30 @@
   color: #9aa8bc;
 }
 
-.edhrec-panel-price.is-pricey {
-  color: #fbbf24;
+/*
+ * Price ramp. Card prices span four orders of magnitude, so one "expensive"
+ * colour is not enough - a $20 card and a $1,600 card were previously
+ * identical. Runs dim -> neutral -> warm -> hot rather than green -> red:
+ * green already means positive synergy in the column alongside, and cheap
+ * cards should recede rather than compete for attention.
+ */
+.edhrec-price-t0 { color: #6b7a8f; }                      /* under $1  */
+.edhrec-price-t1 { color: #8fa0b8; }                      /* $1 - $5   */
+.edhrec-price-t2 { color: #c3cede; }                      /* $5 - $20  */
+.edhrec-price-t3 { color: #fbbf24; }                      /* $20 - $50 */
+.edhrec-price-t4 { color: #fb923c; }                      /* $50 - $100 */
+.edhrec-price-t5 { color: #f87171; font-weight: 650; }    /* $100 - $500 */
+
+/* The top band gets a tinted pill rather than yet another shade of red: by
+   $500 the useful signal is "stop", and two similar reds at 650 and 700 weight
+   were not separable at a glance - which was the whole point of the ramp. */
+.edhrec-price-t6 {
+  color: #ff5d7d;
+  font-weight: 700;
+  background: rgba(255, 61, 113, 0.15);
+  border-radius: 8px;
+  padding: 0 5px;
+  margin-right: -5px;
 }
 
 .edhrec-panel-price.is-unknown {

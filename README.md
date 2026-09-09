@@ -135,18 +135,44 @@ not a mystery.
 alternates; unpriced cards sort last rather than masquerading as free.
 
 **Prices, because "should I add this" is a budget question.** Each row shows its USD
-price in a right-hand column so the numbers can be compared without reading the names,
-anything over $20 is tinted, and the footer totals the selection — *Copy 3 as list ·
-$76.47*. Prices come from the same Scryfall `/cards/collection` endpoint the ranks use,
-addressed by the Scryfall id EDHREC hands us, which sidesteps every multi-face naming
-problem the rank path had to solve. They are fetched **lazily for the rows actually on
-screen**: opening the drawer costs one request, expanding a type list costs one more, and
-a session that expands nothing never pays for the other 200. They cache for 24h rather
-than the ranks' week, since Scryfall updates prices daily.
+price in a right-hand column, and the footer totals the selection — *Copy 3 as list ·
+$76.47*. Fetched **lazily for the rows actually on screen**: opening the drawer costs one
+request, expanding a type list costs one more, and a session that expands nothing never
+pays for the other 200. Cached 24h rather than the ranks' week, since Scryfall updates
+prices daily.
 
-One sharp edge: Scryfall rejects an **entire batch** with HTTP 400 if a single `id` is not
-a valid UUID, so one bad id from EDHREC would cost prices for 75 cards. Ids are validated
-before sending.
+Prices run over seven bands, because card prices span four orders of magnitude and one
+"expensive" colour puts a $20 card and a $1,600 card in the same bucket:
+
+| | | | | | | |
+|---|---|---|---|---|---|---|
+| `<$1` | `$1–5` | `$5–20` | `$20–50` | `$50–100` | `$100–500` | `$500+` |
+| dim | slate | neutral | amber | orange | red | red pill |
+
+The ramp runs dim → neutral → warm → hot rather than green → red: green already means
+positive synergy one column to the left, and a cheap card should recede rather than
+compete for attention. The top band gets a tinted pill because two shades of red at
+different weights were not separable at a glance.
+
+### Pricing the printing you would actually buy
+
+The obvious implementation is wrong, and quietly so. Asking Scryfall for the id EDHREC
+supplies prices **an arbitrary printing**: its Volcanic Island is Limited Edition Beta,
+which has no USD price at all and a EUR price of €10,577. Its Island, Mountain and Steam
+Vents are a promo set with no prices either. Asking by name is no better — Scryfall's
+default printing for Volcanic Island is Vintage Masters, an MTGO-only set.
+
+So pricing batches by name for the common case, then falls back to a per-card search
+across all printings ordered by price for anything still unpriced. That turns Volcanic
+Island into **$938.50** and Island into **$0.06**, which is the number someone deciding
+whether to add a card actually needs. On the deck measured this cut unpriced rows from
+six to one — and that one is a card with genuinely no USD price anywhere.
+
+The fallback costs one request per card, so it is bounded per call and cached for a day.
+
+One sharp edge found on the way: Scryfall rejects an **entire batch** with HTTP 400 if a
+single `id` identifier is not a valid UUID, rather than reporting it as not_found — so
+the id-based approach had a second failure mode on top of the wrong-printing one.
 
 **It ends in something you can use.** We never write to Moxfield's API, so the honest
 action is checkboxes plus *Copy as list*, which produces `1 Card Name` lines to paste into
