@@ -73,44 +73,27 @@
     }
     running = true;
     try {
-      const gridPairs = [];
-      for (const host of dom.findUnprocessedCards()) {
-        const name = dom.extractCardName(host);
-        if (name) gridPairs.push([host, name]);
-      }
+      // The adapter decides what is badgeable and how; this loop stays ignorant
+      // of grids, rows and previews. Live targets come back every pass, so drop
+      // the ones already showing the right card before we bother the network.
+      const targets = dom
+        .findTargets()
+        .filter((t) => !(t.live && dom.badgedName(t.mount) === t.name));
+      if (!targets.length) return;
 
-      // The hover preview swaps cards in place instead of remounting, so it is
-      // re-derived every pass rather than marked done.
-      const livePairs = [];
-      for (const host of dom.findPreviewHosts()) {
-        const name = dom.extractPreviewName(host);
-        if (!name) {
-          dom.clearBadge(host);
-          continue;
-        }
-        if (dom.badgedName(host) === name) continue; // already showing this card
-        livePairs.push([host, name]);
-      }
-
-      if (!gridPairs.length && !livePairs.length) return;
-
-      const names = [...new Set([...gridPairs, ...livePairs].map(([, n]) => n))];
+      const names = [...new Set(targets.map((t) => t.name))];
       const res = await api.runtime.sendMessage({ type: 'lookup-ranks', names });
       if (!res?.ok) {
         console.warn('[edhrec-overlay] lookup failed:', res?.error);
         return;
       }
 
-      for (const [host, name] of gridPairs) {
+      for (const t of targets) {
         // The tile may have been unmounted while we were awaiting.
-        if (!host.isConnected) continue;
-        dom.attachBadge(host, buildBadge(name, res.ranks[name]));
-      }
-      for (const [host, name] of livePairs) {
-        if (!host.isConnected) continue;
-        // The pointer may have moved on to another card while we awaited.
-        if (dom.badgedName(host) === name) continue;
-        dom.attachBadge(host, buildBadge(name, res.ranks[name]), { live: true });
+        if (!t.host.isConnected) continue;
+        // A live host may have moved on to another card in the meantime.
+        if (t.live && dom.badgedName(t.mount) === t.name) continue;
+        dom.attachBadge(t, buildBadge(t.name, res.ranks[t.name]));
       }
     } finally {
       running = false;

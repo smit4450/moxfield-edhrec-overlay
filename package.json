@@ -1,0 +1,16 @@
+{
+  "name": "moxfield-edhrec-overlay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Firefox extension showing EDHREC rank on Moxfield cards.",
+  "scripts": {
+    "test": "node tools/test-lookup.mjs",
+    "verify": "node tools/verify-live.mjs",
+    "lint": "web-ext lint --self-hosted",
+    "build": "web-ext build --overwrite-dest"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "web-ext": "^8.0.0"
+  }
+}

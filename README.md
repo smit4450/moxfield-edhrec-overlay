@@ -59,7 +59,7 @@ an id→name index harvested from the page, where the same id appears both as a
 | `src/background.js` | Scryfall batching, rate limiting, persistent cache |
 | `src/badge.css` | Badge styling, scoped to `.edhrec-*` |
 | `tools/test-lookup.mjs` | Contract test for the Scryfall path — `node tools/test-lookup.mjs` |
-| `tools/inspect-selectors.js` | DOM regression check, pasted into the devtools console |
+| `tools/verify-live.mjs` | Drives a real browser over all six view styles, screenshots each |
 
 ### Multi-face cards
 
@@ -93,65 +93,74 @@ Requires **Firefox 140+** (142+ on Android) — that's the floor for the
 Temporary add-ons are cleared when Firefox restarts. Permanent installation needs
 [signing through AMO][signing].
 
-## Verifying the selectors
+## Verifying against a live page
 
-Verified against a live deck page on **2026-09-09** with
-[`tools/inspect-selectors.js`](tools/inspect-selectors.js):
+`tools/verify-live.mjs` drives a real browser at a real deck, injects
+`src/moxfield-dom.js` and `src/badge.css`, paints a badge on everything
+`findTargets()` returns, and screenshots all six view styles into `.pw-shots/`.
 
-| | |
-|---|---|
-| `.img-card` on page | **88** — all `<img>`, all with a non-empty `alt` |
-| in skip containers | 13 — 7 sample-hand + 2 previews × 3 images |
-| junk `alt` values | 0 — every one sits inside a skip container |
-| badgeable images | **75** |
-| distinct `.img-card-visual` tiles | **75** — 1:1, no collisions |
-| badges injected | **75** — matches expected, no strays |
+```bash
+npm i -D playwright && npx playwright install chromium
+node tools/verify-live.mjs [deckUrl]
+```
 
-The junk alts (`"Transform"`, `"Front"`, `"Back"`) turned out to live entirely inside the
-sidebar previews, which contribute 3 images each rather than 2. Skipping those containers
-removes them before the name filter ever sees them, which is why the junk count reads 0.
+**Cloudflare blocks headless outright** — a headless request gets *"Sorry, you have
+been blocked"* rather than the page — so this runs **headed** with a persistent
+profile and a browser window will open. That block is also why an automated browser
+appeared to hang on `"Loading Moxfield…"` during early development; it was never
+slowness.
 
-`.img-card` sits on the `<img>` itself, so the name (`alt`) and the element are the same
-thing. The badge is anchored one level out, on **`.img-card-visual`** — the per-card tile.
+The extension is not loaded in that run, which is fine: this verifies the DOM adapter,
+the fragile half. The Scryfall half is covered by `tools/test-lookup.mjs`.
 
-That tile also carries `id="vd-<cardId>"`, and the id matches the card-page slug:
-`vd-Yd22G` alongside `/cards/Yd22G-elves-of-deep-shadow`. That's a stable per-card key
-worth remembering if `alt` ever stops being reliable.
+Last full run — 27-card deck, all six styles, zero duplicate hosts, zero nested anchors,
+every badge visible:
 
-Anchoring was originally `closest('a, div')`. Measured against `parentElement` and the
-image itself, the first two behaved **identically** (80 hosts, 8 images lost to
-collisions) — so the fix was not a better generic strategy but naming the tile directly.
+| View style | image | row | preview |
+|---|---:|---:|---:|
+| Text | 0 | 29 | 2 |
+| Condensed Text | 0 | 29 | 2 |
+| Visual Grid | 27 | 2 | 2 |
+| Visual Stacks | 27 | 2 | 2 |
+| Visual Stacks (Split) | 27 | 2 | 2 |
+| Visual Spoiler | 27 | 2 | 2 |
+
+### Anchor on the id, not the class
+
+The card's own id is the last `-` segment of the element id, in every view:
+
+```
+vd-Mxm76              Visual Grid / Visual Spoiler
+id87-legal-Mxm76      Visual Stacks
+id169-legal-Mxm76     Visual Stacks (Split)
+id_r_1l_-Mxm76        Text / Condensed Text row link
+deckviewimage-_r_os_  preview wrapper - correctly NOT a match
+```
+
+The classes on those same elements are hashed CSS-module names
+(`qqvQq_L4ZyNhF25VQaOA`, `XIi4jFys2lGhYwseGpBo`) that change on every Moxfield build.
+The id pattern held across all six styles and excludes the preview for free, since
+React's generated suffixes carry underscores.
+
+It also settles a false positive: category headers (`Creatures(4)`) reuse the
+`table-deck-row-link` class but carry no id at all, so requiring a card id filters
+them out.
 
 ### The `/cards/` trap
 
 Do not match card links with `a[href*="/cards/"]`. Moxfield's card-image **download
-buttons** point at:
-
-```
-https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?327820734&download=true
-```
-
-That contains `/cards/` but is an image asset. Measured on the page inspected: **91
-elements matched, of which only 13 were real card pages and 78 were image assets.**
-Unguarded, the slug parser turned one into the card name `Lze8j normal.jpg`, which would
-be sent to Scryfall and negative-cached. `cardPageSlug()` now requires a same-host
-`/cards/<slug>` path with no image extension.
-
-### Re-running the check
-
-Paste [`tools/inspect-selectors.js`](tools/inspect-selectors.js) into the devtools
-console on a deck page. It mirrors the production logic and prints
-`badges: N injected / M expected`, naming any tile that is missing a badge and any badge
-that landed somewhere it shouldn't. If `.img-card` or `.img-card-visual` ever drops to
-zero, update `CARD_HOST_SELECTORS` / `CARD_TILE` in `src/moxfield-dom.js` — nothing else
-should need to change.
+buttons** point at
+`https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?...&download=true`, which
+contains `/cards/` but is an image asset. Measured on a live page: **91 elements
+matched, only 13 were real card pages, 78 were download links.** Unguarded, the slug
+parser turned one into the card name `Lze8j normal.jpg`. `cardPageSlug()` requires a
+same-host `/cards/<slug>` path with no image extension.
 
 ## Known limitations
 
-- **Grid and hover preview only; table and list views are not covered yet.** Those
-  render card names as rows rather than images, so they need a different anchor and an
-  inline badge rather than a corner one. `tools/inspect-selectors.js` has a *text views*
-  section that harvests the row structure — run it in each view mode.
+- **Rows wrap in narrow columns.** In text views the inline badge adds width, which
+  pushes some longer card names onto a second line. The inline badge is deliberately
+  smaller than the card badge to limit this.
 - **`User-Agent` is out of our hands — and Scryfall enforces it.** Scryfall now rejects
   requests carrying a default HTTP-library User-Agent with `HTTP 400 / rule:
   generic_user_agent`. Extensions *cannot* set that header — `User-Agent` is a
@@ -180,7 +189,7 @@ should need to change.
 
 - [x] Verify selectors against a live page
 - [x] Badge the hover preview on the left
-- [ ] Support table + list views
+- [x] Support all six view styles
 - [ ] Badge the sample-hand widget (needs injected per-card wrappers)
 - [ ] **Sort a deck by EDHREC rank** — the real differentiator, since Moxfield won't
       build it natively

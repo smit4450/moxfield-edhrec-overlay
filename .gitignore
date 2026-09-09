@@ -1,7 +1,10 @@
-node_modules/
 *.log
-*.zip
 *.xpi
-web-ext-artifacts/
+*.zip
 .DS_Store
+.pw-profile/
+.pw-shots/
 Thumbs.db
+node_modules/
+package-lock.json
+web-ext-artifacts/

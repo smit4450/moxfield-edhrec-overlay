@@ -7,5 +7,17 @@
  * of the lint report, where it would otherwise read as a real finding.
  */
 module.exports = {
-  ignoreFiles: ['tools', 'web-ext-config.cjs', '.gitattributes', '.gitignore'],
+  ignoreFiles: [
+    'tools',
+    'node_modules',
+    // Playwright's persistent profile and screenshots: large, local-only, and
+    // nothing to do with the shipped extension.
+    '.pw-profile',
+    '.pw-shots',
+    'package.json',
+    'package-lock.json',
+    'web-ext-config.cjs',
+    '.gitattributes',
+    '.gitignore',
+  ],
 };

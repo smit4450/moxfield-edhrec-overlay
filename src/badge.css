@@ -68,3 +68,18 @@
   border-radius: 11px;
   font-size: 15px;
 }
+
+/* Table and list views: the badge sits in the row's text flow rather than over
+   a card image, so it must not be absolutely positioned. It is appended to the
+   row link's PARENT, never inside the link -- the badge is itself an <a>, and
+   nesting anchors is invalid HTML that browsers silently restructure. */
+.edhrec-badge.edhrec-inline {
+  position: static;
+  margin-left: 5px;
+  vertical-align: middle;
+  box-shadow: none;
+  /* Deliberately smaller than the card badge. Text views lay cards out in
+     narrow columns, and every extra pixel pushes more rows onto a second line. */
+  padding: 0 4px;
+  font-size: 10px;
+}

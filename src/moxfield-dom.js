@@ -3,99 +3,147 @@
  *
  * EVERYTHING THAT KNOWS ABOUT MOXFIELD'S MARKUP LIVES HERE.
  *
- * Moxfield is a React SPA with unversioned internal class names. When a deploy
- * breaks the overlay, this file is the only one that should need editing.
+ * Moxfield is a React SPA. When a deploy breaks the overlay, this file is the
+ * only one that should need editing. Verified against live deck pages in every
+ * view mode; re-run tools/verify-live.mjs after any breakage.
  *
- * The selectors below were verified against a live Moxfield deck page on
- * 2026-09-09 with tools/inspect-selectors.js. Re-run it after any Moxfield
- * deploy that breaks the overlay; see README "Verifying the selectors".
+ * `findTargets()` is the whole public surface: it returns one descriptor per
+ * badgeable thing on the page, so content.js stays ignorant of how any of it
+ * was found.
  */
 
 globalThis.MoxfieldDom = (() => {
-  // Marks a host element as already handled, so re-running is idempotent.
+  // Marks a host as handled, so re-running is idempotent. Live hosts never get it.
   const DONE_ATTR = 'data-edhrec-badge';
 
-  // Verified against a live deck page 2026-09-09: `.img-card` matched 88
-  // elements, every one an <img>, and all 88 carried a non-empty alt. The two
-  // link-based candidates that used to sit here matched zero and were removed.
-  const CARD_HOST_SELECTORS = ['.img-card'];
-
   /**
-   * The per-card tile in the deck grid, and what we anchor the badge to.
+   * The card's own id is the final `-` segment of the element id, in EVERY view:
    *
-   * Verified 2026-09-09: every badge that landed correctly had this as its
-   * offsetParent, and each one carries `id="vd-<cardId>"` where the id matches
-   * the card-page slug — `vd-Yd22G` alongside `/cards/Yd22G-elves-of-deep-shadow`.
-   * That makes it a stable per-card key if `alt` ever stops being reliable.
+   *   vd-Yd22G              visual spoiler tile
+   *   id1288-legal-N9J2z    the second image grid
+   *   id_r_12h_-N9J2z       table / list row link
+   *   deckviewimage-_r_os_  preview wrapper - correctly NOT a match
    *
-   * Anchoring here rather than via `closest('a, div')` is the difference between
-   * naming the element we want and landing on whatever container happened to be
-   * nearest.
+   * Anchoring on this rather than on a class is deliberate. The classes on
+   * those same elements are hashed CSS-module names (`qqvQq_L4ZyNhF25VQaOA`,
+   * `XIi4jFys2lGhYwseGpBo`) that change on every Moxfield build, whereas this
+   * pattern held across all three layouts. It also excludes the preview for
+   * free, since React's generated suffixes carry underscores.
    */
-  const CARD_TILE = '.img-card-visual';
+  const CARD_ID_SUFFIX = /-([A-Za-z0-9]{4,8})$/;
 
-  /**
-   * Contexts that render `.img-card` images with no per-card wrapper, where a
-   * badge would attach once to a shared container instead of once per card.
-   *
-   * Verified 2026-09-09: the sample-hand widget puts all 7 images directly in a
-   * single `div.samplehand` (they collapse to one host under every anchoring
-   * strategy tried), and each sidebar preview holds up to three images for one
-   * card (Transform / Front / Back).
-   *
-   * The preview is excluded here but NOT abandoned — it is badged by the live
-   * path below, which re-derives it on every pass because it swaps cards on
-   * hover without remounting.
-   */
-  const SKIP_CONTAINERS = '.samplehand, .deckview-image-wrapper';
+  /** The card image. Present in both image grids, absent in text views. */
+  const CARD_IMAGE = '.img-card';
 
-  /**
-   * The large card preview on the left, which follows the mouse.
-   *
-   * It cannot use the one-shot path: React swaps the image in place rather than
-   * remounting the wrapper, so a badge marked done would go stale and start
-   * reporting the rank of whatever card you hovered first.
-   */
+  /** The per-card row link in table and list views. Not a hashed class. */
+  const ROW_LINK = 'a.table-deck-row-link';
+
+  /** The large card preview on the left, which follows the mouse. */
   const PREVIEW_HOST = '.deckview-image-wrapper';
+
+  /**
+   * The sample-hand widget renders all 7 of its images as direct children of a
+   * single container with no per-card wrapper, so every anchoring strategy
+   * collapses them onto one badge. Badging it properly needs wrappers we inject
+   * ourselves, which means fighting React's reconciliation.
+   */
+  const SKIP_CONTAINERS = '.samplehand';
 
   /** Moxfield card-image URLs: assets.moxfield.net/cards/card-<cardId>-normal.jpg */
   const CARD_ASSET_ID = /\/cards\/card-([A-Za-z0-9]+)-/;
 
-  // Alt/title values Moxfield uses that are not card names. Verified present in
-  // live alt text: "Transform", "Front", "Back" all appear on real images.
+  // Alt/title values Moxfield uses that are not card names.
   const JUNK_NAMES = new Set(['front', 'back', 'transform', 'flip', 'card', '']);
 
-  /** All card tiles on the page that still need a badge. */
-  function findUnprocessedCards(root = document) {
+  /**
+   * Every badgeable thing on the page, as descriptors:
+   *   host   identity, and what gets marked done
+   *   mount  where the badge element is appended
+   *   name   the card name to look up
+   *   inline text-view badges sit in the flow; image badges sit in a corner
+   *   live   re-derived every pass instead of being marked done
+   */
+  function findTargets(root = document) {
+    return [...imageTargets(root), ...rowTargets(root), ...previewTargets(root)];
+  }
+
+  /** Card images, in whichever grid layout this view uses. */
+  function imageTargets(root) {
     const seen = new Set();
     const out = [];
-    for (const sel of CARD_HOST_SELECTORS) {
-      for (const el of root.querySelectorAll(sel)) {
-        if (el.closest(SKIP_CONTAINERS)) continue;
-        const host =
-          el.closest(CARD_TILE) || (el.tagName === 'IMG' ? el.closest('a, div') : el) || el;
-        if (!host || seen.has(host) || host.hasAttribute(DONE_ATTR)) continue;
-        seen.add(host);
-        out.push(host);
-      }
+    for (const img of root.querySelectorAll(CARD_IMAGE)) {
+      if (img.closest(SKIP_CONTAINERS) || img.closest(PREVIEW_HOST)) continue;
+      const host = tileFor(img);
+      if (!host || seen.has(host) || host.hasAttribute(DONE_ATTR)) continue;
+      const name = clean(img.getAttribute('alt'));
+      if (!isPlausibleName(name)) continue;
+      seen.add(host);
+      out.push({ host, mount: host, name, inline: false, live: false });
     }
     return out;
   }
 
-  /** Preview hosts, returned every pass — never marked done. */
-  function findPreviewHosts(root = document) {
-    return [...root.querySelectorAll(PREVIEW_HOST)];
+  /**
+   * Table and list view rows.
+   *
+   * The badge is appended to the link's PARENT, never inside the link: the
+   * badge is itself an <a>, and nesting anchors is invalid HTML that browsers
+   * silently restructure.
+   */
+  function rowTargets(root) {
+    const out = [];
+    for (const link of root.querySelectorAll(ROW_LINK)) {
+      if (link.closest(SKIP_CONTAINERS)) continue;
+      // Category headers ("Creatures(4)", "Planeswalkers(1)") reuse the
+      // row-link class. Verified live: real card rows carry a card id
+      // (id_r_1l_-Mxm76) and headers carry no id at all.
+      if (!link.id || !CARD_ID_SUFFIX.test(link.id)) continue;
+      const mount = link.parentElement;
+      if (!mount || link.hasAttribute(DONE_ATTR)) continue;
+      const name = rowCardName(link);
+      if (!name) continue;
+      out.push({ host: link, mount, name, inline: true, live: false });
+    }
+    return out;
+  }
+
+  /** The hover preview, re-derived every pass because it swaps cards in place. */
+  function previewTargets(root) {
+    const out = [];
+    for (const host of root.querySelectorAll(PREVIEW_HOST)) {
+      const name = extractPreviewName(host);
+      if (!name) {
+        clearBadge(host);
+        continue;
+      }
+      out.push({ host, mount: host, name, inline: false, live: true });
+    }
+    return out;
+  }
+
+  /** Nearest ancestor-or-self whose element id ends in a card id. */
+  function tileFor(el) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.id && CARD_ID_SUFFIX.test(n.id)) return n;
+    }
+    // Older markup, and a last resort if the id scheme ever changes.
+    return el.closest('.img-card-visual') || el.closest('a, div');
+  }
+
+  /** Card name for a table/list row: the link's own text, else its slug. */
+  function rowCardName(link) {
+    const text = clean(link.textContent);
+    if (isPlausibleName(text)) return text;
+    return nameFromCardHref(link.getAttribute('href'));
   }
 
   /**
    * Card name shown in the hover preview.
    *
    * A single-faced preview carries the name in an image alt like everything
-   * else. A double-faced one does not — its images are labelled "Front",
-   * "Back" and "Transform" — so fall back to the Moxfield card id embedded in
-   * the image URL and resolve it against names harvested from the rest of the
-   * page, where the same id appears as a `vd-<id>` tile and in `/cards/<id>-…`
-   * links.
+   * else. A double-faced one does not - its images are labelled "Front",
+   * "Back" and "Transform" - so fall back to the Moxfield card id embedded in
+   * the image URL, resolved against names harvested from the rest of the page.
    */
   function extractPreviewName(host) {
     for (const img of host.querySelectorAll('img')) {
@@ -121,18 +169,19 @@ globalThis.MoxfieldDom = (() => {
   /**
    * Map of Moxfield card id -> card name, harvested from the page.
    *
-   * Two independent sources, both verified 2026-09-09: grid tiles carry
-   * `id="vd-<cardId>"` with the name in their image alt, and card links are
-   * `/cards/<cardId>-<slugified-name>`. Link text is preferred over the slug,
-   * which flattens apostrophes and commas.
+   * Two independent sources: any element whose id ends in a card id and which
+   * contains a named card image, and card links of the form
+   * `/cards/<cardId>-<slugified-name>`. Link text beats the slug, which
+   * flattens apostrophes and commas.
    */
   function cardNameById(root = document) {
     const map = new Map();
 
-    for (const tile of root.querySelectorAll(`${CARD_TILE}[id^="vd-"]`)) {
-      const id = tile.id.slice(3);
-      const name = clean(tile.querySelector('img')?.getAttribute('alt'));
-      if (id && isPlausibleName(name) && !map.has(id)) map.set(id, name);
+    for (const el of root.querySelectorAll('[id]')) {
+      const m = el.id.match(CARD_ID_SUFFIX);
+      if (!m || map.has(m[1])) continue;
+      const name = clean(el.querySelector(CARD_IMAGE)?.getAttribute('alt'));
+      if (isPlausibleName(name)) map.set(m[1], name);
     }
 
     for (const a of root.querySelectorAll('a[href*="/cards/"]')) {
@@ -148,44 +197,14 @@ globalThis.MoxfieldDom = (() => {
   }
 
   /**
-   * Best-effort card name for a tile.
-   * Tries image alt/title/data-name, then the /cards/<id>-<slug> href, then
-   * any descendant that looks like a name label.
-   */
-  function extractCardName(host) {
-    const img = host.tagName === 'IMG' ? host : host.querySelector('img');
-    if (img) {
-      for (const attr of ['alt', 'title', 'data-name']) {
-        const v = clean(img.getAttribute(attr));
-        if (isPlausibleName(v)) return v;
-      }
-    }
-
-    const link = findCardPageLink(host);
-    if (link) {
-      const fromHref = nameFromCardHref(link.getAttribute('href'));
-      if (isPlausibleName(fromHref)) return fromHref;
-    }
-
-    const label = host.querySelector('[class*="card-name"], [class*="cardName"], [class*="name"]');
-    const v = clean(label && label.textContent);
-    if (isPlausibleName(v)) return v;
-
-    return null;
-  }
-
-  /**
    * Returns the slug of a genuine Moxfield card page, or null.
    *
    * Matching on `href*="/cards/"` alone is a trap: Moxfield's card-image
    * download buttons point at
    * `https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?...&download=true`,
    * which contains `/cards/` but is an image asset. Left unguarded that yields
-   * the "card name" `Lze8j normal.jpg`, which then gets sent to Scryfall and
-   * negative-cached. Observed on a live deck page 2026-09-09, where 93 elements
-   * matched `a[href*="/cards/"]` and the sampled one was a download button.
-   *
-   * So: same host as the page, an exact /cards/<slug> path, no image extension.
+   * the "card name" `Lze8j normal.jpg`. Measured on a live page: 91 elements
+   * matched, of which only 13 were real card pages and 78 were download links.
    */
   function cardPageSlug(href) {
     if (!href) return null;
@@ -202,24 +221,10 @@ globalThis.MoxfieldDom = (() => {
     return m[1];
   }
 
-  /** The first descendant/ancestor link that is a real card page. */
-  function findCardPageLink(host) {
-    const candidates = [];
-    if (host.matches?.('a[href*="/cards/"]')) candidates.push(host);
-    candidates.push(...host.querySelectorAll('a[href*="/cards/"]'));
-    const up = host.closest?.('a[href*="/cards/"]');
-    if (up) candidates.push(up);
-    for (const a of candidates) {
-      if (cardPageSlug(a.getAttribute('href'))) return a;
-    }
-    return null;
-  }
-
   /**
-   * Moxfield card URLs look like /cards/YNRXG-extraplanar-lens — a short id,
-   * a hyphen, then a slugified name. Recovering the name from a slug is lossy
-   * (apostrophes, commas and hyphens in real names are all flattened), so this
-   * is a last resort; Scryfall's fuzzy matching usually rescues it.
+   * Moxfield card URLs look like /cards/YNRXG-extraplanar-lens. Recovering the
+   * name from a slug is lossy (apostrophes, commas and hyphens in real names
+   * all flatten), so it is a last resort; Scryfall's matching usually rescues it.
    */
   function nameFromCardHref(href) {
     const slug = cardPageSlug(href);
@@ -229,38 +234,36 @@ globalThis.MoxfieldDom = (() => {
     return rest.split('-').filter(Boolean).join(' ');
   }
 
-  /**
-   * Attach the badge, or replace one that React reconciled away.
-   *
-   * `live` hosts (the hover preview) are deliberately not marked done, so each
-   * pass re-checks them and can swap the badge when the card changes.
-   */
-  function attachBadge(host, badgeEl, { live = false } = {}) {
-    const existing = host.querySelector(':scope > .edhrec-badge');
-    if (existing) existing.remove();
-    host.classList.add('edhrec-host');
-    if (live) host.classList.add('edhrec-preview-host');
-    else host.setAttribute(DONE_ATTR, '1');
-    host.appendChild(badgeEl);
+  /** Attach a badge for one target, replacing any React reconciled away. */
+  function attachBadge({ host, mount, inline, live }, badgeEl) {
+    mount.querySelector(':scope > .edhrec-badge')?.remove();
+    if (inline) {
+      badgeEl.classList.add('edhrec-inline');
+    } else {
+      mount.classList.add('edhrec-host');
+      if (live) mount.classList.add('edhrec-preview-host');
+    }
+    if (!live) host.setAttribute(DONE_ATTR, '1');
+    mount.appendChild(badgeEl);
   }
 
-  /** Name currently badged on a host, so a live host can skip redundant work. */
-  function badgedName(host) {
-    return host.querySelector(':scope > .edhrec-badge')?.dataset.cardName ?? null;
+  /** Name currently badged on a mount, so a live host can skip redundant work. */
+  function badgedName(mount) {
+    return mount.querySelector(':scope > .edhrec-badge')?.dataset.cardName ?? null;
   }
 
-  /** Remove a live host's badge — e.g. the preview showing something unreadable. */
-  function clearBadge(host) {
-    host.querySelector(':scope > .edhrec-badge')?.remove();
-    host.classList.remove('edhrec-preview-host');
+  /** Remove a live host's badge - e.g. a preview showing something unreadable. */
+  function clearBadge(mount) {
+    mount.querySelector(':scope > .edhrec-badge')?.remove();
+    mount.classList.remove('edhrec-preview-host', 'edhrec-host');
   }
 
-  /** Clear all badges and markers — used when the user toggles the overlay off. */
+  /** Clear every badge and marker - used when the overlay is toggled off. */
   function removeAllBadges(root = document) {
     for (const b of root.querySelectorAll('.edhrec-badge')) b.remove();
-    for (const h of root.querySelectorAll(`[${DONE_ATTR}]`)) {
-      h.removeAttribute(DONE_ATTR);
-      h.classList.remove('edhrec-host');
+    for (const h of root.querySelectorAll(`[${DONE_ATTR}]`)) h.removeAttribute(DONE_ATTR);
+    for (const h of root.querySelectorAll('.edhrec-host, .edhrec-preview-host')) {
+      h.classList.remove('edhrec-host', 'edhrec-preview-host');
     }
   }
 
@@ -276,15 +279,5 @@ globalThis.MoxfieldDom = (() => {
     return s.length >= 2 && s.length <= 200;
   }
 
-  return {
-    DONE_ATTR,
-    findUnprocessedCards,
-    findPreviewHosts,
-    extractCardName,
-    extractPreviewName,
-    attachBadge,
-    badgedName,
-    clearBadge,
-    removeAllBadges,
-  };
+  return { DONE_ATTR, findTargets, attachBadge, badgedName, clearBadge, removeAllBadges };
 })();
