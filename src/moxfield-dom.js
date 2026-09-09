@@ -6,24 +6,48 @@
  * Moxfield is a React SPA with unversioned internal class names. When a deploy
  * breaks the overlay, this file is the only one that should need editing.
  *
- * The selectors below are derived from the Moxfield Card Pricer extension
- * (github.com/Jesse-Culver/Moxfield-Card-Pricer---Firefox-Addon) and have NOT
- * been verified against a live page by the author. Verify before trusting.
- * See README "Verifying the selectors".
+ * The selectors below were verified against a live Moxfield deck page on
+ * 2026-09-09 with tools/inspect-selectors.js. Re-run it after any Moxfield
+ * deploy that breaks the overlay; see README "Verifying the selectors".
  */
 
 globalThis.MoxfieldDom = (() => {
   // Marks a host element as already handled, so re-running is idempotent.
   const DONE_ATTR = 'data-edhrec-badge';
 
-  // Ordered by confidence. Anything matching is treated as one card tile.
   // Verified against a live deck page 2026-09-09: `.img-card` matched 88
-  // elements; the two link-based candidates that used to sit here matched zero
-  // and were removed. `.img-card` is on the <img> itself, which is also where
-  // the card name lives (alt), so it is both the anchor and the identity.
+  // elements, every one an <img>, and all 88 carried a non-empty alt. The two
+  // link-based candidates that used to sit here matched zero and were removed.
   const CARD_HOST_SELECTORS = ['.img-card'];
 
-  // Alt/title values Moxfield uses that are not card names.
+  /**
+   * The per-card tile in the deck grid, and what we anchor the badge to.
+   *
+   * Verified 2026-09-09: every badge that landed correctly had this as its
+   * offsetParent, and each one carries `id="vd-<cardId>"` where the id matches
+   * the card-page slug — `vd-Yd22G` alongside `/cards/Yd22G-elves-of-deep-shadow`.
+   * That makes it a stable per-card key if `alt` ever stops being reliable.
+   *
+   * Anchoring here rather than via `closest('a, div')` is the difference between
+   * naming the element we want and landing on whatever container happened to be
+   * nearest.
+   */
+  const CARD_TILE = '.img-card-visual';
+
+  /**
+   * Contexts that render `.img-card` images with no per-card wrapper, where a
+   * badge would attach once to a shared container instead of once per card.
+   *
+   * Verified 2026-09-09: the sample-hand widget puts all 7 images directly in a
+   * single `div.samplehand` (they collapse to one host under every anchoring
+   * strategy tried), and each sidebar preview holds a double-faced card's front
+   * and back. The sidebar is also just a magnified duplicate of a grid tile that
+   * already has its own badge. Skipped rather than mis-badged; see README.
+   */
+  const SKIP_CONTAINERS = '.samplehand, .deckview-image-wrapper';
+
+  // Alt/title values Moxfield uses that are not card names. Verified present in
+  // live alt text: "Transform", "Front", "Back" all appear on real images.
   const JUNK_NAMES = new Set(['front', 'back', 'transform', 'flip', 'card', '']);
 
   /** All card tiles on the page that still need a badge. */
@@ -32,7 +56,9 @@ globalThis.MoxfieldDom = (() => {
     const out = [];
     for (const sel of CARD_HOST_SELECTORS) {
       for (const el of root.querySelectorAll(sel)) {
-        const host = el.tagName === 'IMG' ? el.closest('a, div') || el : el;
+        if (el.closest(SKIP_CONTAINERS)) continue;
+        const host =
+          el.closest(CARD_TILE) || (el.tagName === 'IMG' ? el.closest('a, div') : el) || el;
         if (!host || seen.has(host) || host.hasAttribute(DONE_ATTR)) continue;
         seen.add(host);
         out.push(host);

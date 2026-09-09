@@ -1,115 +1,101 @@
 /**
  * Selector diagnostic — paste into the devtools console on a Moxfield DECK page.
  *
- * Round 2. Round 1 established that `.img-card` matches (88 elements on a live
- * page) while the link-based candidates matched nothing, and that
- * `a[href*="/cards/"]` is a trap because image-download buttons live under
- * assets.moxfield.net/cards/*.jpg.
+ * Mirrors the production logic in src/moxfield-dom.js and reports where it
+ * disagrees with reality, so a Moxfield deploy that breaks the overlay shows up
+ * as a concrete number rather than "no badges appeared".
  *
- * This pass answers what's left: are we anchoring badges to the right element,
- * and does every card actually get one?
+ * Baseline from 2026-09-09 (a 78-distinct-name deck):
+ *   .img-card                 88   all <img>, all with a non-empty alt
+ *   in skip containers        11   7 sample-hand + 2 sidebar previews x 2 faces
+ *   junk alts                  3   "Transform", "Front", "Back"
+ *   badgeable tiles           77
  *
  * Not part of the extension; never shipped.
  */
 
 (() => {
+  const CARD_HOST = '.img-card';
+  const CARD_TILE = '.img-card-visual';
+  const SKIP_CONTAINERS = '.samplehand, .deckview-image-wrapper';
+  const JUNK = new Set(['front', 'back', 'transform', 'flip', 'card', '']);
+
   const describe = (el) =>
     !el
       ? '(none)'
       : el.tagName.toLowerCase() +
         (el.id ? '#' + el.id : '') +
-        (el.className ? '.' + String(el.className).trim().split(/\s+/).slice(0, 4).join('.') : '');
+        (el.className ? '.' + String(el.className).trim().split(/\s+/).slice(0, 3).join('.') : '');
 
-  const cards = [...document.querySelectorAll('.img-card')];
-  console.group('%cMoxfield selector check — round 2', 'font-weight:bold;font-size:13px');
-  console.log('.img-card matches:', cards.length);
+  const alt = (el) => (el.getAttribute('alt') || '').trim();
+  const isJunk = (s) => !s || JUNK.has(s.toLowerCase());
 
-  // --- 1. What kind of element is .img-card, and does it carry the name? ---
-  const tags = {};
-  let withAlt = 0;
-  const noAlt = [];
-  for (const el of cards) {
-    tags[el.tagName] = (tags[el.tagName] || 0) + 1;
-    const alt = (el.getAttribute('alt') || '').trim();
-    if (alt) withAlt++;
-    else noAlt.push(el);
-  }
-  console.log('tag distribution:', tags);
-  console.log(`carry a non-empty alt: ${withAlt}/${cards.length}`);
-  console.log('sample alts:', cards.slice(0, 6).map((e) => e.getAttribute('alt')));
-  if (noAlt.length) {
-    console.warn(`${noAlt.length} .img-card without alt — these lose their name:`);
-    noAlt.slice(0, 8).forEach((e) => console.log('   ', describe(e), '| parent:', describe(e.parentElement)));
-  }
+  console.group('%cMoxfield overlay check', 'font-weight:bold;font-size:13px');
 
-  // --- 2. Host anchoring: does closest('a,div') collapse distinct cards? ---
-  const strategies = {
-    "closest('a, div')  [current]": (el) => el.closest('a, div') || el,
-    'parentElement': (el) => el.parentElement || el,
-    'the .img-card itself': (el) => el,
-  };
-  const rows = [];
-  for (const [label, fn] of Object.entries(strategies)) {
-    const hosts = new Map();
-    for (const el of cards) {
-      const h = fn(el);
-      if (!hosts.has(h)) hosts.set(h, []);
-      hosts.get(h).push(el);
+  const all = [...document.querySelectorAll(CARD_HOST)];
+  const skipped = all.filter((el) => el.closest(SKIP_CONTAINERS));
+  const live = all.filter((el) => !el.closest(SKIP_CONTAINERS));
+  const junk = live.filter((el) => isJunk(alt(el)));
+  const named = live.filter((el) => !isJunk(alt(el)));
+
+  // Resolve each image to the host the extension would actually badge.
+  const tiles = new Map();
+  const noTile = [];
+  for (const el of named) {
+    const tile = el.closest(CARD_TILE);
+    if (!tile) {
+      noTile.push(el);
+      continue;
     }
-    const collisions = [...hosts.values()].filter((g) => g.length > 1);
-    rows.push({
-      strategy: label,
-      distinctHosts: hosts.size,
-      lostToCollision: cards.length - hosts.size,
-      collidingGroups: collisions.length,
-    });
-    if (collisions.length && label.includes('current')) {
-      console.warn('collisions under the current strategy (these share one badge):');
-      collisions.slice(0, 6).forEach((g) => {
-        console.log('   host:', describe(g[0].closest('a, div')));
-        g.forEach((e) => console.log('      ↳ alt:', JSON.stringify(e.getAttribute('alt'))));
-      });
-    }
+    if (!tiles.has(tile)) tiles.set(tile, []);
+    tiles.get(tile).push(el);
   }
-  console.table(rows);
 
-  // --- 3. Are distinct card NAMES preserved? ---
-  const names = new Set(cards.map((e) => (e.getAttribute('alt') || '').trim()).filter(Boolean));
-  console.log('distinct card names among .img-card:', names.size);
+  console.table([
+    { stage: `${CARD_HOST} on page`, count: all.length },
+    { stage: 'in skip containers', count: skipped.length },
+    { stage: 'junk alt (Front/Back/…)', count: junk.length },
+    { stage: 'badgeable images', count: named.length },
+    { stage: `distinct ${CARD_TILE} tiles`, count: tiles.size },
+    { stage: 'no tile ancestor (!)', count: noTile.length },
+  ]);
 
-  // --- 4. Classify every /cards/ link: real page vs image asset. ---
-  const links = [...document.querySelectorAll('a[href*="/cards/"]')];
-  const isCardPage = (href) => {
-    try {
-      const u = new URL(href, location.href);
-      return (
-        u.hostname === location.hostname &&
-        /^\/cards\/[^/]+\/?$/.test(u.pathname) &&
-        !/\.(?:jpe?g|png|webp|gif|avif|svg)$/i.test(u.pathname)
-      );
-    } catch {
-      return false;
-    }
-  };
-  const pages = links.filter((a) => isCardPage(a.getAttribute('href')));
-  console.log(`a[href*="/cards/"]: ${links.length} total → ${pages.length} real card pages, ${links.length - pages.length} image assets`);
-  if (pages.length) console.log('   sample real card href:', pages[0].getAttribute('href'));
+  const collisions = [...tiles.entries()].filter(([, g]) => g.length > 1);
+  if (collisions.length) {
+    console.warn(`${collisions.length} tiles hold more than one image — these share a badge:`);
+    collisions.slice(0, 6).forEach(([t, g]) =>
+      console.log('   ', describe(t), '←', g.map(alt))
+    );
+  }
+  if (noTile.length) {
+    console.warn(`${noTile.length} images have no ${CARD_TILE} ancestor — they fall back to closest('a, div'):`);
+    noTile.slice(0, 8).forEach((el) =>
+      console.log('   ', JSON.stringify(alt(el)), '| parent:', describe(el.parentElement))
+    );
+  }
 
-  // --- 5. Where did badges actually land? ---
+  // Did every tile we expected to badge actually get one?
   const badges = [...document.querySelectorAll('.edhrec-badge')];
-  console.log(`%cbadges injected: ${badges.length}`, badges.length ? 'color:#15803d' : 'color:#dc2626');
-  const offParents = {};
-  for (const b of badges) {
-    const k = describe(b.offsetParent);
-    offParents[k] = (offParents[k] || 0) + 1;
-  }
-  console.log('badge offsetParent distribution (should be the card tile, not a page-level panel):');
-  console.table(
-    Object.entries(offParents)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([host, count]) => ({ host, count }))
+  const missing = [...tiles.keys()].filter((t) => !t.querySelector(':scope > .edhrec-badge'));
+  const strays = badges.filter((b) => !b.parentElement?.matches(CARD_TILE));
+
+  console.log(
+    `%cbadges: ${badges.length} injected / ${tiles.size} expected`,
+    badges.length === tiles.size ? 'color:#15803d;font-weight:bold' : 'color:#dc2626;font-weight:bold'
   );
+  if (missing.length) {
+    console.warn(`${missing.length} tiles missing a badge:`);
+    missing.slice(0, 10).forEach((t) =>
+      console.log('   ', describe(t), '|', JSON.stringify(alt(t.querySelector(CARD_HOST) || t)))
+    );
+  }
+  if (strays.length) {
+    console.warn(`${strays.length} badges are NOT on a ${CARD_TILE} tile:`);
+    strays.slice(0, 10).forEach((b) => console.log('   host:', describe(b.parentElement), '|', b.textContent));
+  }
+  if (!missing.length && !strays.length && badges.length) {
+    console.log('%c✓ every badgeable tile has exactly one badge, and none landed elsewhere', 'color:#15803d');
+  }
 
   console.groupEnd();
 })();

@@ -55,16 +55,26 @@ Temporary add-ons are cleared when Firefox restarts. Permanent installation need
 
 ## Verifying the selectors
 
-Partially verified against a live deck page on **2026-09-09**:
+Verified against a live deck page on **2026-09-09** with
+[`tools/inspect-selectors.js`](tools/inspect-selectors.js):
 
-- `.img-card` — **88 matches.** It sits on the `<img>` itself, which also carries the
-  card name in `alt`. This is the anchor *and* the identity, and it is the only
-  selector the extension now uses.
-- `[class*="visual-spoiler"] a[href*="/cards/"]` and `a[href*="/cards/"] img` — **zero
-  matches.** Removed.
-- 78 badges injected from 88 images. Whether that gap is correct de-duplication
-  (double-faced cards sharing a tile) or genuinely dropped cards is **still open** —
-  see round 2 of the diagnostic.
+| | |
+|---|---|
+| `.img-card` | **88** — all `<img>`, all with a non-empty `alt` |
+| in skip containers | 11 — sample hand + sidebar previews |
+| junk `alt` values | 3 — `"Transform"`, `"Front"`, `"Back"` |
+| badgeable tiles | **77** |
+
+`.img-card` sits on the `<img>` itself, so the name (`alt`) and the element are the same
+thing. The badge is anchored one level out, on **`.img-card-visual`** — the per-card tile.
+
+That tile also carries `id="vd-<cardId>"`, and the id matches the card-page slug:
+`vd-Yd22G` alongside `/cards/Yd22G-elves-of-deep-shadow`. That's a stable per-card key
+worth remembering if `alt` ever stops being reliable.
+
+Anchoring was originally `closest('a, div')`. Measured against `parentElement` and the
+image itself, the first two behaved **identically** (80 hosts, 8 images lost to
+collisions) — so the fix was not a better generic strategy but naming the tile directly.
 
 ### The `/cards/` trap
 
@@ -75,19 +85,20 @@ buttons** point at:
 https://assets.moxfield.net/cards/card-Lze8j-normal.jpg?327820734&download=true
 ```
 
-That contains `/cards/` but is an image asset. On the page inspected, 93 elements
-matched that selector and the sampled one was a download button. Unguarded, the slug
-parser turned it into the card name `Lze8j normal.jpg`, which would be sent to Scryfall
-and negative-cached. `cardPageSlug()` in `src/moxfield-dom.js` now requires a same-host
+That contains `/cards/` but is an image asset. Measured on the page inspected: **91
+elements matched, of which only 13 were real card pages and 78 were image assets.**
+Unguarded, the slug parser turned one into the card name `Lze8j normal.jpg`, which would
+be sent to Scryfall and negative-cached. `cardPageSlug()` now requires a same-host
 `/cards/<slug>` path with no image extension.
 
 ### Re-running the check
 
 Paste [`tools/inspect-selectors.js`](tools/inspect-selectors.js) into the devtools
-console on a deck page. It reports match counts, compares host-anchoring strategies,
-classifies every `/cards/` link as page vs asset, and shows where badges actually
-landed. If `.img-card` ever drops to zero, update `CARD_HOST_SELECTORS` in
-`src/moxfield-dom.js` — nothing else should need to change.
+console on a deck page. It mirrors the production logic and prints
+`badges: N injected / M expected`, naming any tile that is missing a badge and any badge
+that landed somewhere it shouldn't. If `.img-card` or `.img-card-visual` ever drops to
+zero, update `CARD_HOST_SELECTORS` / `CARD_TILE` in `src/moxfield-dom.js` — nothing else
+should need to change.
 
 ## Known limitations
 
@@ -104,6 +115,13 @@ landed. If `.img-card` ever drops to zero, update `CARD_HOST_SELECTORS` in
   "fix" this by hand-setting the header — it will be dropped.
 - **Selector fragility.** Moxfield's class names are unversioned internal markup and can
   change on any deploy. This is the permanent maintenance cost of the project.
+- **Sample hand and sidebar preview are skipped.** Moxfield's sample-hand widget renders
+  all 7 images as direct children of one `div.samplehand` with no per-card wrapper, so
+  every anchoring strategy collapses them onto a single badge. Badging them properly
+  means injecting our own wrappers, which means fighting React's reconciliation. The
+  sidebar preview is skipped for a different reason: it is a magnified duplicate of a
+  grid tile that already carries its own badge, and for double-faced cards it holds two
+  images whose alts are just `"Front"` and `"Back"`.
 - **Rank only, not full EDHREC data.** Synergy %, per-commander inclusion rate, and salt
   score are *not* in Scryfall. They live behind `json.edhrec.com/pages`, which is
   undocumented, unofficial, keyless, Cloudflare-fronted, and can break without notice.
@@ -115,7 +133,9 @@ landed. If `.img-card` ever drops to zero, update `CARD_HOST_SELECTORS` in
 
 ## Roadmap
 
-- [ ] Verify selectors against a live page; support table + list views
+- [x] Verify selectors against a live page
+- [ ] Support table + list views
+- [ ] Badge the sample-hand widget (needs injected per-card wrappers)
 - [ ] **Sort a deck by EDHREC rank** — the real differentiator, since Moxfield won't
       build it natively
 - [ ] Options page: tier thresholds, badge position, on/off toggle
