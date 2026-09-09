@@ -175,6 +175,8 @@
         if (!res?.ok) return;
         edhrec = { ...res, commander: commanders[0] || '' };
         edhrecKey = key;
+        lastPanelSig = ''; // new commander: the whole recommendation set changed
+        syncPanel();
         // Badges are already on the page; only their tooltips need to change.
         for (const b of document.querySelectorAll('.edhrec-badge')) {
           const name = b.dataset.cardName;
@@ -361,6 +363,39 @@
   window.addEventListener('scroll', hideTip, true);
   window.addEventListener('resize', hideTip);
 
+  /**
+   * Hand the recommendations panel a fresh view of the deck.
+   *
+   * Recomputed rather than accumulated, because cards leave the deck too. The
+   * signature check keeps this off the hot path: the deck only changes when a
+   * card is added or removed, not on every mutation the observer sees.
+   */
+  let lastPanelSig = '';
+  function syncPanel() {
+    const panel = globalThis.EdhrecPanel;
+    if (!panel || !edhrec.lists?.length) return;
+
+    const names = dom.deckCardNames();
+    const sig = `${names.size}|${edhrecKey}`;
+    if (sig === lastPanelSig) return;
+    lastPanelSig = sig;
+
+    // If Moxfield says the deck is bigger than what is rendered, a filter or
+    // search is active and "not in this deck" would be wrong. Say so rather
+    // than quietly recommending cards the deck already runs.
+    const stated = dom.statedDeckSize();
+    const deck = new Set([...names].map(frontFace));
+    const mismatch = stated && names.size < stated ? { seen: names.size, stated } : null;
+
+    panel.update({
+      lists: edhrec.lists,
+      stats: edhrec.stats,
+      deck,
+      commander: edhrec.commander,
+      mismatch,
+    });
+  }
+
   let running = false;
   let rescanQueued = false;
 
@@ -401,6 +436,7 @@
       }
     } finally {
       running = false;
+      syncPanel();
       if (rescanQueued) {
         rescanQueued = false;
         schedule();

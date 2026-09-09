@@ -213,8 +213,17 @@ const EDHREC_SALT = 'https://json.edhrec.com/pages/top/salt.json';
 const EDHREC_TTL_MS = 24 * 60 * 60 * 1000;
 const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const EDHREC_PREFIX = `edhrec:${CACHE_VERSION}:`;
-const SALT_KEY = `salt:${CACHE_VERSION}`;
+/**
+ * Versioned separately from the rank cache: the EDHREC payload shape changes
+ * on its own schedule, and bumping it should not throw away every rank and
+ * force a full Scryfall refetch.
+ *
+ * v2: the cached value gained `lists` (ordered recommendations) and a Scryfall
+ * `id` per card, so v1 entries are the wrong shape.
+ */
+const EDHREC_VERSION = 'v2';
+const EDHREC_PREFIX = `edhrec:${EDHREC_VERSION}:`;
+const SALT_KEY = `salt:${EDHREC_VERSION}`;
 
 /**
  * EDHREC card slugs: front face only, lowercase, apostrophes dropped, every
@@ -241,17 +250,31 @@ async function readJsonCache(key, ttl) {
 
 const writeJsonCache = (key, value) => api.storage.local.set({ [key]: { value, ts: Date.now() } });
 
-/** Flatten a commander page into name -> the few fields we actually show. */
+/**
+ * Flatten a commander page into two views of the same data:
+ *
+ *   stats  name -> the fields the badge tooltip shows
+ *   lists  EDHREC's own groupings, in order, for the recommendations panel
+ *
+ * The panel needs the ordering and grouping that the flat map throws away, and
+ * the Scryfall `id` on each cardview (verified to be a real Scryfall card id)
+ * so card images can be built without another API call.
+ */
 function indexCommanderPage(page) {
-  const out = {};
+  const stats = {};
+  const lists = [];
+
   for (const list of page?.container?.json_dict?.cardlists || []) {
     const label = list.header || list.tag || '';
+    const cards = [];
+
     for (const c of list.cardviews || []) {
       if (!c?.name) continue;
       const key = c.name.toLowerCase();
-      const entry = (out[key] ||= { name: c.name, lists: [] });
+      const entry = (stats[key] ||= { name: c.name, lists: [] });
       // A card appears in several lists (a category plus, say, "Top Cards");
       // the stats are identical, so first write wins and we just collect labels.
+      if (!entry.id && c.id) entry.id = c.id;
       if (entry.synergy === undefined && typeof c.synergy === 'number') entry.synergy = c.synergy;
       if (entry.inclusion === undefined && c.potential_decks > 0) {
         entry.inclusion = c.num_decks / c.potential_decks;
@@ -259,9 +282,13 @@ function indexCommanderPage(page) {
         entry.potentialDecks = c.potential_decks;
       }
       if (label && !entry.lists.includes(label)) entry.lists.push(label);
+      cards.push(c.name);
     }
+
+    if (label && cards.length) lists.push({ header: label, cards });
   }
-  return out;
+
+  return { stats, lists };
 }
 
 /**
@@ -289,7 +316,7 @@ async function commanderStats(names) {
       const res = await fetch(EDHREC_COMMANDER + slug + '.json', { headers: { Accept: 'application/json' } });
       if (!res.ok) continue;
       const value = indexCommanderPage(await res.json());
-      if (!Object.keys(value).length) continue;
+      if (!Object.keys(value.stats).length) continue;
       await writeJsonCache(key, value);
       return value;
     } catch (err) {
@@ -329,11 +356,16 @@ async function saltScores() {
 
 /** Everything EDHREC can tell us about this deck, or null if it cannot. */
 async function edhrecForDeck(commanderNames) {
-  const [stats, salt] = await Promise.all([
+  const [page, salt] = await Promise.all([
     commanderNames?.length ? commanderStats(commanderNames) : Promise.resolve(null),
     saltScores(),
   ]);
-  return { stats: stats || {}, salt: salt || {}, matched: Boolean(stats) };
+  return {
+    stats: page?.stats || {},
+    lists: page?.lists || [],
+    salt: salt || {},
+    matched: Boolean(page),
+  };
 }
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

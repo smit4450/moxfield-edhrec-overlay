@@ -198,6 +198,43 @@ try {
     console.log('   (could not switch to Visual Grid; hovering whatever is here)');
   }
 
+  // --- Recommendations panel -------------------------------------------------
+  const launcher = await page.$('.edhrec-panel-launcher');
+  check(Boolean(launcher), 'recommendations launcher appears');
+  if (launcher) {
+    await launcher.click();
+    await page.waitForTimeout(800);
+    const panel = await page.evaluate(() => {
+      const deck = new Set(
+        [...document.querySelectorAll('.edhrec-badge')]
+          .map((b) => (b.dataset.cardName || '').split('//')[0].trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const rows = [...document.querySelectorAll('.edhrec-panel-row')];
+      const names = rows.map((r) => r.querySelector('.edhrec-panel-name')?.textContent?.trim() || '');
+      return {
+        open: document.querySelector('.edhrec-panel')?.classList.contains('is-open') === true,
+        rows: rows.length,
+        sections: [...document.querySelectorAll('.edhrec-panel-title')].map((t) => t.textContent),
+        // The whole point of the feature: nothing listed may already be in the deck.
+        alreadyInDeck: names.filter((n) => deck.has(n.split('//')[0].trim().toLowerCase())),
+      };
+    });
+    check(panel.open && panel.rows > 0, 'panel opens with recommendations', `(${panel.rows} rows)`);
+    check(
+      panel.alreadyInDeck.length === 0,
+      'nothing recommended is already in the deck',
+      panel.alreadyInDeck.length ? `(${panel.alreadyInDeck.slice(0, 3).join(', ')})` : ''
+    );
+    check(
+      panel.sections[0] === 'High Synergy Cards',
+      'curated sections lead the list',
+      `(first: ${panel.sections[0]})`
+    );
+    await launcher.click(); // close again so it cannot occlude later checks
+    await page.waitForTimeout(400);
+  }
+
   // --- Styled tooltip -------------------------------------------------------
   // A leftover `title` would race our own tooltip and the OS would win the
   // first second, so assert it is gone as well as that ours shows.

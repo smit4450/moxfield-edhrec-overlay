@@ -207,6 +207,41 @@ globalThis.MoxfieldDom = (() => {
     return [...new Set(m[1].split(/\s+and\s+/i).map(clean).filter(isPlausibleName))];
   }
 
+  /**
+   * Every card name on the page, regardless of whether it is already badged.
+   *
+   * findTargets() cannot answer this: it deliberately skips hosts marked done,
+   * so by the second pass it returns almost nothing. The recommendations panel
+   * needs the whole deck, every time.
+   */
+  function deckCardNames(root = document) {
+    const names = new Set();
+    for (const img of root.querySelectorAll(CARD_IMAGE)) {
+      if (img.closest(SKIP_CONTAINERS) || img.closest(PREVIEW_HOST)) continue;
+      const n = clean(img.getAttribute('alt'));
+      if (isPlausibleName(n)) names.add(n);
+    }
+    for (const link of root.querySelectorAll(ROW_LINK)) {
+      if (link.closest(SKIP_CONTAINERS)) continue;
+      if (!link.id || !CARD_ID_SUFFIX.test(link.id)) continue;
+      const n = rowCardName(link);
+      if (n) names.add(n);
+    }
+    return names;
+  }
+
+  /**
+   * The card count Moxfield states for itself, e.g. "67 main deck".
+   *
+   * Used as a cross-check: if fewer cards are visible than Moxfield claims, a
+   * filter or search is active and "not in this deck" would be a lie. Verified
+   * to agree exactly with deckCardNames() on an unfiltered page.
+   */
+  function statedDeckSize() {
+    const m = document.body.innerText.match(/(\d[\d,]*)\s+main deck/i);
+    return m ? Number(m[1].replace(/,/g, '')) : null;
+  }
+
   /** Nearest ancestor-or-self whose element id ends in a card id. */
   function tileFor(el) {
     for (let n = el; n && n !== document.body; n = n.parentElement) {
@@ -382,6 +417,8 @@ globalThis.MoxfieldDom = (() => {
     DONE_ATTR,
     findTargets,
     findCommanderNames,
+    deckCardNames,
+    statedDeckSize,
     // Exposed separately so a hover can refresh just the preview, without
     // re-scanning every card on the page.
     findPreviewTargets: (root = document) => previewTargets(root),

@@ -36,6 +36,7 @@
       ],
       "js": [
         "src/moxfield-dom.js",
+        "src/panel.js",
         "src/content.js"
       ],
       "css": [

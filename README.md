@@ -104,6 +104,41 @@ by the badge render, and the overlay degrades to rank-only. Cards EDHREC does no
 for your commander simply show no synergy line: 49 of 70 badges carried one on the deck
 last measured.
 
+### Recommendations panel
+
+A right-edge drawer listing EDHREC cards for your commander that the deck does not
+already run, opened from a tab that shows the count.
+
+It is anchored to `<body>`, **not** injected into Moxfield's own card sections. Appending
+"ghost" cards into the Creatures/Instants containers would mean fighting React
+reconciliation in three different layouts keyed off build-hashed class names; a surface
+we own is untouched by all of it and behaves identically in all six view styles. Same
+reasoning as the tooltip.
+
+**Curated first, bulk collapsed.** EDHREC returns ~265 recommendations against a 67-card
+deck, so ~216 are "missing" — unusable as a flat list. High Synergy, Top Cards, Game
+Changers and New Cards (14 rows on the deck measured) are open by default; the type lists
+sit behind *Show all 41*. The header states `Showing 14 of 216` so the collapsed ones are
+not a mystery.
+
+**Sorted by synergy, not rank**, for the reason the whole EDHREC section exists: rank says
+"popular everywhere", synergy says "belongs in this deck". *Played in* is the alternate.
+
+**It ends in something you can use.** We never write to Moxfield's API, so the honest
+action is checkboxes plus *Copy as list*, which produces `1 Card Name` lines to paste into
+Moxfield's own bulk import.
+
+Rows show synergy, inclusion and a bar, and hovering one previews the card — the EDHREC
+cardview `id` turns out to be a **Scryfall card id**, so images come straight from
+`cards.scryfall.io` with no extra API call. Moxfield sets no `img-src` CSP, so they load
+directly; this was checked before building rather than after.
+
+**The correctness risk is filtering.** "Not in this deck" is computed by subtracting what
+is on the page, so an active filter would make the panel recommend cards you already run.
+Moxfield states its own total (`67 main deck`), which matched our enumeration exactly on
+an unfiltered page; when the two disagree the panel says so instead of lying.
+`verify-autorun.mjs` asserts that nothing listed is already in the deck.
+
 ### Game Changers: don't say it twice
 
 Moxfield marks game changers itself — but only in some views. Measured across all six:
@@ -155,7 +190,8 @@ an id→name index harvested from the page, where the same id appears both as a
 | `src/moxfield-dom.js` | **All Moxfield-specific selectors.** The one file to fix when a deploy breaks things. |
 | `src/content.js` | MutationObserver loop, badge construction, injection |
 | `src/background.js` | Scryfall batching, rate limiting, persistent cache |
-| `src/badge.css` | Badge styling, scoped to `.edhrec-*` |
+| `src/panel.js` | Recommendations drawer — owns no data, `content.js` feeds it |
+| `src/badge.css` | Badge, tooltip and panel styling, scoped to `.edhrec-*` |
 | `tools/test-lookup.mjs` | Contract test for the Scryfall path — `node tools/test-lookup.mjs` |
 | `tools/verify-live.mjs` | Drives a real browser over all six view styles, screenshots each |
 | `tools/verify-autorun.mjs` | Loads the built extension and proves it badges unaided — `npm run verify:autorun` |
@@ -307,6 +343,7 @@ same-host `/cards/<slug>` path with no image extension.
 - [ ] Optional bundled rank map built from [Scryfall bulk data][bulk] for instant,
       zero-network rendering (`oracle_id → edhrec_rank` is only a few hundred KB)
 - [x] Per-commander synergy, inclusion, list tags and salt via `json.edhrec.com`
+- [x] Show EDHREC recommendations not yet in the deck
 - [ ] Options page: tier thresholds, badge position, toggle EDHREC enrichment off
 
 ## A note on scope and etiquette
