@@ -61,14 +61,12 @@ verified against a live Moxfield page — Moxfield's React app would not finish 
 in the automated browser used to build this scaffold (it sat on *"Loading Moxfield.
 This may take a minute…"* indefinitely).
 
-Before trusting the overlay, open a deck page and paste this into the devtools console:
+Before trusting the overlay, open a deck page and paste the contents of
+[`tools/inspect-selectors.js`](tools/inspect-selectors.js) into the devtools console.
+It reports match counts for each candidate selector, and — when they come back zero —
+dumps the ancestor chain of a real card element so you can write correct ones.
 
-```js
-['.img-card', '[class*="visual-spoiler"] a[href*="/cards/"]', 'a[href*="/cards/"] img']
-  .forEach(s => console.log(s, document.querySelectorAll(s).length));
-```
-
-If the counts are all zero, find the real container and update `CARD_HOST_SELECTORS`.
+If the counts are all zero, update `CARD_HOST_SELECTORS` in `src/moxfield-dom.js`.
 Nothing else should need to change.
 
 ## Known limitations
