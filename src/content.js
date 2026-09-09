@@ -63,6 +63,16 @@
     return el;
   }
 
+  /**
+   * Ranks already seen in this page, mirrored from the background's answers.
+   *
+   * The background has its own durable cache, but reaching it costs a message
+   * round trip plus an async storage read. On the hover path that is the
+   * difference between the preview badge updating instantly and visibly
+   * lagging behind the pointer, so we keep a synchronous copy here too.
+   */
+  const rankCache = new Map();
+
   let running = false;
   let rescanQueued = false;
 
@@ -82,10 +92,15 @@
       if (!targets.length) return;
 
       const names = [...new Set(targets.map((t) => t.name))];
-      const res = await api.runtime.sendMessage({ type: 'lookup-ranks', names });
-      if (!res?.ok) {
-        console.warn('[edhrec-overlay] lookup failed:', res?.error);
-        return;
+      const unknown = names.filter((n) => !rankCache.has(n));
+
+      if (unknown.length) {
+        const res = await api.runtime.sendMessage({ type: 'lookup-ranks', names: unknown });
+        if (!res?.ok) {
+          console.warn('[edhrec-overlay] lookup failed:', res?.error);
+          return;
+        }
+        for (const n of unknown) rankCache.set(n, res.ranks[n] ?? null);
       }
 
       for (const t of targets) {
@@ -93,7 +108,7 @@
         if (!t.host.isConnected) continue;
         // A live host may have moved on to another card in the meantime.
         if (t.live && dom.badgedName(t.mount) === t.name) continue;
-        dom.attachBadge(t, buildBadge(t.name, res.ranks[t.name]));
+        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name)));
       }
     } finally {
       running = false;
@@ -102,6 +117,25 @@
         schedule();
       }
     }
+  }
+
+  /**
+   * Repaint just the hover preview, synchronously where possible.
+   *
+   * Hovering a new card must not wait on the debounce, a full-page
+   * findTargets(), and a background round trip. Once a rank is in rankCache —
+   * which it is for every card already badged on the page — this repaints in
+   * the same task as the mutation. Only a genuinely unseen card falls back to
+   * the normal async scan.
+   */
+  function refreshPreviews() {
+    let needsLookup = false;
+    for (const t of dom.findPreviewTargets()) {
+      if (dom.badgedName(t.mount) === t.name) continue;
+      if (rankCache.has(t.name)) dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name)));
+      else needsLookup = true;
+    }
+    if (needsLookup) schedule();
   }
 
   let timer = null;
@@ -113,18 +147,32 @@
   const isOurs = (n) => n.nodeType === 1 && n.classList?.contains('edhrec-badge');
 
   const observer = new MutationObserver((records) => {
+    let previewTouched = false;
+    let structural = false;
+
     for (const r of records) {
       // Ignore mutations we caused ourselves, or we'd loop forever.
       if (r.target?.closest?.('.edhrec-badge')) continue;
+
+      // A hover swap only rewrites the preview's image. Route it to the fast
+      // path instead of debouncing a whole-page rescan.
+      if (r.target?.closest?.('.deckview-image-wrapper')) {
+        previewTouched = true;
+        continue;
+      }
       if (r.type === 'attributes') {
-        schedule();
-        return;
+        structural = true;
+        continue;
       }
-      if ([...r.addedNodes, ...r.removedNodes].some((n) => !isOurs(n))) {
-        schedule();
-        return;
-      }
+      if ([...r.addedNodes, ...r.removedNodes].some((n) => !isOurs(n))) structural = true;
     }
+
+    if (structural) {
+      // The page's card set may have changed, so the id->name index is stale.
+      dom.invalidateNameIndex();
+      schedule();
+    }
+    if (previewTouched) refreshPreviews();
   });
 
   observer.observe(document.body, {

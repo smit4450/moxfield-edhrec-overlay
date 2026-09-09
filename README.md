@@ -44,6 +44,15 @@ marked done would go stale and keep reporting the first card you hovered. It is 
 re-derived on every pass, and the MutationObserver watches `src`/`alt` attributes so a
 hover actually triggers one.
 
+Hovering has its own fast path, because routing it through the normal scan made the
+badge visibly lag the pointer. That route had a 300ms debounce as a hard floor, and on
+top of it ran a whole-page `findTargets()`, a `querySelectorAll('[id]')` across the
+entire document to rebuild the id->name index, and an async round trip to the background
+for a rank it had already fetched. Now: preview mutations skip the debounce entirely, the
+id->name index is memoized and only rebuilt on structural change, and the content script
+keeps its own synchronous rank cache so an already-seen card repaints in the same task as
+the mutation. Measured over successive hovers: **31-34ms**.
+
 Double-faced previews are a further wrinkle: their images are labelled `"Front"`,
 `"Back"` and `"Transform"` rather than with the card name. For those, the Moxfield card
 id is read out of the image URL (`card-Lze8j-normal.jpg` → `Lze8j`) and resolved against
@@ -60,6 +69,7 @@ an id→name index harvested from the page, where the same id appears both as a
 | `src/badge.css` | Badge styling, scoped to `.edhrec-*` |
 | `tools/test-lookup.mjs` | Contract test for the Scryfall path — `node tools/test-lookup.mjs` |
 | `tools/verify-live.mjs` | Drives a real browser over all six view styles, screenshots each |
+| `tools/verify-autorun.mjs` | Loads the built extension and proves it badges unaided — `npm run verify:autorun` |
 
 ### Multi-face cards
 
@@ -86,12 +96,24 @@ Requires **Firefox 140+** (142+ on Android) — that's the floor for the
 `data_collection_permissions` manifest key AMO now requires. This extension declares
 `"none"`; it stores only a Scryfall rank cache locally and sends nothing anywhere.
 
-1. `about:debugging#/runtime/this-firefox`
-2. **Load Temporary Add-on…** → pick `manifest.json`
-3. Open any Moxfield deck in **Visual Spoiler** view
+```bash
+npm run dev
+```
 
-Temporary add-ons are cleared when Firefox restarts. Permanent installation needs
-[signing through AMO][signing].
+That launches Firefox with the extension loaded and opens a deck. Or load it by hand at
+`about:debugging#/runtime/this-firefox` -> **Load Temporary Add-on...** -> pick
+`manifest.json`.
+
+**Badges appear on their own.** There is no script to run and no button to press: the
+content script matches every `moxfield.com` page and badges the deck as it renders.
+Verified end to end by `npm run verify:autorun`, which loads the built extension and
+waits for badges without injecting anything - most recently **31 badges, all ranked,
+~1.8s after navigation**, and still 31 after routing away and back through Moxfield's
+client-side router.
+
+If badges stop appearing entirely, suspect the install before the code: **Firefox
+removes temporary add-ons on restart**, so a browser restart silently leaves you with
+no extension. Permanent installation needs [signing through AMO][signing].
 
 ## Verifying against a live page
 

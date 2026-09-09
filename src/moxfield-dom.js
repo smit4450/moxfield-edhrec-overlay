@@ -174,7 +174,19 @@ globalThis.MoxfieldDom = (() => {
    * `/cards/<cardId>-<slugified-name>`. Link text beats the slug, which
    * flattens apostrophes and commas.
    */
+  let nameIndexCache = null;
+
+  /** Drop the memoized index; called when the page's card set may have changed. */
+  function invalidateNameIndex() {
+    nameIndexCache = null;
+  }
+
   function cardNameById(root = document) {
+    // Memoized because this is on the hover path: a double-faced preview needs
+    // it on every card change, and rebuilding it means walking every [id] on
+    // the page. The card set only changes on a structural mutation, which
+    // content.js reports via invalidateNameIndex().
+    if (nameIndexCache) return nameIndexCache;
     const map = new Map();
 
     for (const el of root.querySelectorAll('[id]')) {
@@ -193,6 +205,7 @@ globalThis.MoxfieldDom = (() => {
       if (isPlausibleName(name)) map.set(m[1], name);
     }
 
+    nameIndexCache = map;
     return map;
   }
 
@@ -279,5 +292,16 @@ globalThis.MoxfieldDom = (() => {
     return s.length >= 2 && s.length <= 200;
   }
 
-  return { DONE_ATTR, findTargets, attachBadge, badgedName, clearBadge, removeAllBadges };
+  return {
+    DONE_ATTR,
+    findTargets,
+    // Exposed separately so a hover can refresh just the preview, without
+    // re-scanning every card on the page.
+    findPreviewTargets: (root = document) => previewTargets(root),
+    invalidateNameIndex,
+    attachBadge,
+    badgedName,
+    clearBadge,
+    removeAllBadges,
+  };
 })();

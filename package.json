@@ -4,10 +4,12 @@
   "private": true,
   "description": "Firefox extension showing EDHREC rank on Moxfield cards.",
   "scripts": {
+    "dev": "web-ext run --start-url https://moxfield.com/decks/ri44zg2DG0iBE2jUNXEdPg",
     "test": "node tools/test-lookup.mjs",
     "verify": "node tools/verify-live.mjs",
     "lint": "web-ext lint --self-hosted",
-    "build": "web-ext build --overwrite-dest"
+    "build": "web-ext build --overwrite-dest",
+    "verify:autorun": "node tools/verify-autorun.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0",
