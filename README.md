@@ -131,7 +131,22 @@ sit behind *Show all 41*. The header states `Showing 14 of 216` so the collapsed
 not a mystery.
 
 **Sorted by synergy, not rank**, for the reason the whole EDHREC section exists: rank says
-"popular everywhere", synergy says "belongs in this deck". *Played in* is the alternate.
+"popular everywhere", synergy says "belongs in this deck". *Played in* and *Price* are the
+alternates; unpriced cards sort last rather than masquerading as free.
+
+**Prices, because "should I add this" is a budget question.** Each row shows its USD
+price in a right-hand column so the numbers can be compared without reading the names,
+anything over $20 is tinted, and the footer totals the selection — *Copy 3 as list ·
+$76.47*. Prices come from the same Scryfall `/cards/collection` endpoint the ranks use,
+addressed by the Scryfall id EDHREC hands us, which sidesteps every multi-face naming
+problem the rank path had to solve. They are fetched **lazily for the rows actually on
+screen**: opening the drawer costs one request, expanding a type list costs one more, and
+a session that expands nothing never pays for the other 200. They cache for 24h rather
+than the ranks' week, since Scryfall updates prices daily.
+
+One sharp edge: Scryfall rejects an **entire batch** with HTTP 400 if a single `id` is not
+a valid UUID, so one bad id from EDHREC would cost prices for 75 cards. Ids are validated
+before sending.
 
 **It ends in something you can use.** We never write to Moxfield's API, so the honest
 action is checkboxes plus *Copy as list*, which produces `1 Card Name` lines to paste into

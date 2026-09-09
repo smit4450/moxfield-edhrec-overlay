@@ -231,6 +231,22 @@ try {
       'curated sections lead the list',
       `(first: ${panel.sections[0]})`
     );
+
+    // Prices arrive on a second round trip after the rows render.
+    await page.waitForTimeout(2500);
+    const money = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll('.edhrec-panel-price')].map((p) => p.textContent.trim());
+      return {
+        cells: cells.length,
+        withPrice: cells.filter((t) => t.startsWith('$')).length,
+        sample: cells.slice(0, 4),
+      };
+    });
+    check(
+      money.withPrice > 0,
+      'prices load for visible rows',
+      `(${money.withPrice}/${money.cells}: ${money.sample.join(' ')})`
+    );
     await launcher.click(); // close again so it cannot occlude later checks
     await page.waitForTimeout(400);
   }

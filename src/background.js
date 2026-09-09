@@ -45,6 +45,7 @@ async function purgeStaleCacheVersions() {
     ['rank:', CACHE_PREFIX],
     ['edhrec:', EDHREC_PREFIX],
     ['salt:', SALT_KEY],
+    ['price:', PRICE_PREFIX],
   ];
   const all = await api.storage.local.get(null);
   const dead = Object.keys(all).filter((k) =>
@@ -55,7 +56,18 @@ async function purgeStaleCacheVersions() {
   console.info(`[edhrec-overlay] cleared ${dead.length} cache entries from an older version`);
 }
 
-/** Serial queue — guarantees we never exceed the documented rate limit. */
+/**
+ * Prices live in their own cache family with a much shorter life than ranks.
+ *
+ * Scryfall states it updates prices once a day and that fetching more often
+ * than 24h yields nothing new, so a day is both the useful and the polite TTL.
+ * Ranks keep their week, since gameplay data barely moves.
+ */
+const PRICE_VERSION = 'v1';
+const PRICE_PREFIX = `price:${PRICE_VERSION}:`;
+const PRICE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Serial queue - guarantees we never exceed the documented rate limit. */
 let queueTail = Promise.resolve();
 function enqueue(task) {
   const run = queueTail.then(task, task);
@@ -391,6 +403,81 @@ async function edhrecForDeck(commanderNames) {
   };
 }
 
+/**
+ * USD prices for Scryfall card ids.
+ *
+ * Same endpoint and rate limit as the rank lookup, so it goes through the same
+ * serial queue. Addressed by id rather than name because the panel already has
+ * Scryfall ids from EDHREC, which sidesteps every multi-face naming problem
+ * that the rank path had to solve.
+ *
+ * `usd` is null for cards that only exist in foil, so fall back to `usd_foil`
+ * rather than showing nothing.
+ */
+/**
+ * Scryfall rejects the WHOLE batch with HTTP 400 if any single `id` is not a
+ * valid UUID - not just that identifier. One malformed id from EDHREC would
+ * therefore cost prices for up to 75 cards, so ids are validated here first.
+ * Verified against the live API: a well-formed but version-0 UUID still 400s.
+ */
+const SCRYFALL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function lookupPrices(ids) {
+  const unique = [...new Set((ids || []).filter((id) => SCRYFALL_ID.test(id || '')))];
+  if (!unique.length) return {};
+
+  const keys = unique.map((id) => PRICE_PREFIX + id);
+  const stored = await api.storage.local.get(keys);
+  const now = Date.now();
+  const result = {};
+  const stale = [];
+
+  for (const id of unique) {
+    const hit = stored[PRICE_PREFIX + id];
+    if (hit && now - hit.ts < PRICE_TTL_MS) result[id] = hit.value;
+    else stale.push(id);
+  }
+  if (!stale.length) return result;
+
+  const patch = {};
+  for (const batch of chunk(stale, MAX_IDENTIFIERS)) {
+    let cards;
+    try {
+      cards = await enqueue(async () => {
+        const res = await fetch(SCRYFALL_COLLECTION, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ identifiers: batch.map((id) => ({ id })) }),
+        });
+        if (!res.ok) throw new Error(`scryfall ${res.status}`);
+        return (await res.json()).data || [];
+      });
+    } catch (err) {
+      console.warn('[edhrec-overlay] price batch failed:', err.message);
+      continue;
+    }
+
+    const seen = new Set();
+    for (const card of cards) {
+      const usd = card.prices?.usd ?? null;
+      const foil = card.prices?.usd_foil ?? null;
+      const value = { usd: usd == null ? null : Number(usd), foil: foil == null ? null : Number(foil) };
+      result[card.id] = value;
+      patch[PRICE_PREFIX + card.id] = { value, ts: now };
+      seen.add(card.id);
+    }
+    // Cache the misses too, or an unpriceable card is re-requested forever.
+    for (const id of batch) {
+      if (seen.has(id)) continue;
+      result[id] = null;
+      patch[PRICE_PREFIX + id] = { value: null, ts: now };
+    }
+  }
+
+  if (Object.keys(patch).length) await api.storage.local.set(patch);
+  return result;
+}
+
 purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -399,6 +486,13 @@ api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .then((ranks) => sendResponse({ ok: true, ranks }))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true; // keep the message channel open for the async response
+  }
+
+  if (msg?.type === 'lookup-prices') {
+    lookupPrices(msg.ids)
+      .then((prices) => sendResponse({ ok: true, prices }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
   }
 
   if (msg?.type === 'lookup-edhrec') {

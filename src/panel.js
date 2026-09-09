@@ -14,6 +14,8 @@
  */
 
 globalThis.EdhrecPanel = (() => {
+  const api = globalThis.browser ?? globalThis.chrome;
+
   /**
    * EDHREC returns ~265 recommendations against a ~67-card deck, so ~200 are
    * "missing" — far too many to dump in a list. These four are the curated
@@ -25,6 +27,15 @@ globalThis.EdhrecPanel = (() => {
   const PREVIEW_ROWS = 8; // rows shown before a bulk section is expanded
 
   let state = { lists: [], stats: {}, deck: new Set(), commander: '', mismatch: null };
+
+  /**
+   * Prices, fetched lazily for whatever is on screen rather than for all ~216
+   * recommendations. Opening the drawer costs one request for the curated
+   * rows; expanding a type list costs one more. Most sessions never expand
+   * anything, so fetching everything up front would be mostly waste.
+   */
+  const prices = new Map(); // card name -> { usd, foil } | null
+  let pricesPending = false;
   let root = null;
   let open = false;
   let sortBy = 'synergy';
@@ -40,11 +51,34 @@ globalThis.EdhrecPanel = (() => {
   };
 
   const pct = (n) => `${(n * 100).toFixed(1)}%`;
+
+  /** Foil-only cards have a null `usd`, so fall back rather than show nothing. */
+  const usdOf = (p) => (p ? (p.usd ?? p.foil ?? null) : null);
+  const money = (n) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
   const norm = (s) => s.split('//')[0].trim().toLowerCase();
 
   /** The EDHREC cardview id is a Scryfall card id, so images need no API call. */
   const imageFor = (id) =>
     id ? `https://cards.scryfall.io/normal/front/${id[0]}/${id[1]}/${id}.jpg` : null;
+
+  /** Ask the background for any on-screen card whose price we do not have yet. */
+  function ensurePrices(cards) {
+    if (pricesPending) return;
+    const need = cards.filter((c) => c.id && !prices.has(c.name)).slice(0, 75);
+    if (!need.length) return;
+
+    pricesPending = true;
+    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-prices', ids: need.map((c) => c.id) }))
+      .then((res) => {
+        if (!res?.ok) return;
+        for (const c of need) prices.set(c.name, res.prices[c.id] ?? null);
+        render();
+      })
+      .catch((err) => console.warn('[edhrec-overlay] price lookup failed:', err.message))
+      .finally(() => {
+        pricesPending = false;
+      });
+  }
 
   /** Recommendations the deck does not already contain, grouped as EDHREC has them. */
   function missingByList() {
@@ -53,11 +87,17 @@ globalThis.EdhrecPanel = (() => {
       const cards = list.cards
         .filter((name) => !state.deck.has(norm(name)))
         .map((name) => state.stats[name.toLowerCase()] || { name })
-        .sort((a, b) =>
-          sortBy === 'inclusion'
-            ? (b.inclusion ?? -1) - (a.inclusion ?? -1)
-            : (b.synergy ?? -Infinity) - (a.synergy ?? -Infinity)
-        );
+        .sort((a, b) => {
+          if (sortBy === 'inclusion') return (b.inclusion ?? -1) - (a.inclusion ?? -1);
+          if (sortBy === 'price') {
+            // Cheapest first, and anything unpriced sinks to the bottom rather
+            // than masquerading as free.
+            const pa = usdOf(prices.get(a.name));
+            const pb = usdOf(prices.get(b.name));
+            return (pa ?? Infinity) - (pb ?? Infinity);
+          }
+          return (b.synergy ?? -Infinity) - (a.synergy ?? -Infinity);
+        });
       if (cards.length) out.push({ header: list.header, cards, curated: CURATED.includes(list.header) });
     }
     // Curated lists first, in CURATED order rather than EDHREC's own. EDHREC
@@ -100,6 +140,14 @@ globalThis.EdhrecPanel = (() => {
     }
     main.append(meta);
     row.append(main);
+
+    const usd = usdOf(prices.get(card.name));
+    // An em dash rather than a blank, matching the badge: an empty cell reads
+    // as a rendering gap, not as "no price known".
+    const price = el('div', 'edhrec-panel-price', usd == null ? '—' : money(usd));
+    if (usd == null) price.classList.add('is-unknown');
+    if (usd != null && usd >= 20) price.classList.add('is-pricey');
+    row.append(price);
 
     const img = imageFor(card.id);
     if (img) {
@@ -164,7 +212,18 @@ globalThis.EdhrecPanel = (() => {
     if (!foot) return;
     foot.replaceChildren();
 
-    const copy = el('button', 'edhrec-panel-copy', picked.size ? `Copy ${picked.size} as list` : 'Select cards to copy');
+    // Running total is the point of showing prices at all: "should I add these"
+    // is a budget question as much as a synergy one.
+    let total = 0;
+    let unknown = 0;
+    for (const n of picked) {
+      const usd = usdOf(prices.get(n));
+      if (usd == null) unknown++;
+      else total += usd;
+    }
+    const cost = picked.size ? ` · ${money(total)}${unknown ? '+' : ''}` : '';
+
+    const copy = el('button', 'edhrec-panel-copy', picked.size ? `Copy ${picked.size} as list${cost}` : 'Select cards to copy');
     copy.disabled = picked.size === 0;
     copy.addEventListener('click', async () => {
       // We never write to Moxfield's API, so the honest action is a list the
@@ -261,6 +320,7 @@ globalThis.EdhrecPanel = (() => {
     for (const [key, label] of [
       ['synergy', 'Synergy'],
       ['inclusion', 'Played in'],
+      ['price', 'Price'],
     ]) {
       const b = el('button', `edhrec-panel-sortbtn${sortBy === key ? ' is-on' : ''}`, label);
       b.addEventListener('click', () => {
@@ -272,6 +332,9 @@ globalThis.EdhrecPanel = (() => {
     body.append(sort);
 
     for (const s of sections) body.append(buildSection(s));
+
+    // Only the rows actually rendered need prices.
+    ensurePrices(sections.filter((s) => s.curated || expanded.has(s.header)).flatMap((s) => s.cards));
 
     const foot = el('div', 'edhrec-panel-foot');
     body.append(foot);

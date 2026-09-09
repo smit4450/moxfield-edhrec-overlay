@@ -495,3 +495,23 @@
 .edhrec-panel-img.is-visible {
   opacity: 1;
 }
+
+/* Price sits in its own right-hand column so the numbers line up down the
+   drawer and can be compared without reading the names. */
+.edhrec-panel-price {
+  flex: 0 0 auto;
+  min-width: 46px;
+  padding-top: 1px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #9aa8bc;
+}
+
+.edhrec-panel-price.is-pricey {
+  color: #fbbf24;
+}
+
+.edhrec-panel-price.is-unknown {
+  color: #5b6779;
+}
