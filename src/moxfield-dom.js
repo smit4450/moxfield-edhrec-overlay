@@ -49,6 +49,28 @@ globalThis.MoxfieldDom = (() => {
    */
   const SKIP_CONTAINERS = '.samplehand';
 
+  /**
+   * Moxfield's own Game Changer marker.
+   *
+   * It marks game changers itself with a `fa-gauge` icon whose element id is
+   * `<rowId>-brackets-<cardId>`, so our gold ring would be a second badge for
+   * the same fact. Verified across all view styles: the per-card marker exists
+   * ONLY in Text and Condensed Text, and is absent entirely from Visual Grid,
+   * Visual Stacks and Visual Spoiler. It also carries `d-none d-md-inline`, so
+   * it vanishes on narrow screens.
+   *
+   * Hence a visibility check rather than mere presence: wherever Moxfield is
+   * actually showing the icon we stay quiet, and everywhere else - which is
+   * every visual view, where the cards are largest - we still mark it.
+   *
+   * The `.fa-gauge` half of the selector is load-bearing. Visual views carry a
+   * DIFFERENT element sharing the same `-brackets-<cardId>` id pattern - a
+   * `companion-container cursor-pointer` tile wrapper, not an icon - and
+   * matching on the id alone wrongly suppressed our ring in exactly the views
+   * that need it.
+   */
+  const BRACKET_MARK = '.fa-gauge[id*="-brackets-"]';
+
   /** Moxfield card-image URLs: assets.moxfield.net/cards/card-<cardId>-normal.jpg */
   const CARD_ASSET_ID = /\/cards\/card-([A-Za-z0-9]+)-/;
 
@@ -64,7 +86,25 @@ globalThis.MoxfieldDom = (() => {
    *   live   re-derived every pass instead of being marked done
    */
   function findTargets(root = document) {
-    return [...imageTargets(root), ...rowTargets(root), ...previewTargets(root)];
+    const flagged = moxfieldFlaggedCardIds(root);
+    const mark = (t) => ({ ...t, moxfieldFlagsGameChanger: flagged.has(cardIdOf(t.host)) });
+    return [...imageTargets(root), ...rowTargets(root), ...previewTargets(root)].map(mark);
+  }
+
+  /** The card id an element's own id ends with, if any. */
+  function cardIdOf(el) {
+    return el?.id?.match(CARD_ID_SUFFIX)?.[1] ?? null;
+  }
+
+  /** Card ids Moxfield is already showing its own Game Changer icon for. */
+  function moxfieldFlaggedCardIds(root = document) {
+    const ids = new Set();
+    for (const el of root.querySelectorAll(BRACKET_MARK)) {
+      if (!el.offsetParent) continue; // hidden at this width; ours should show
+      const id = cardIdOf(el);
+      if (id) ids.add(id);
+    }
+    return ids;
   }
 
   /** Card images, in whichever grid layout this view uses. */

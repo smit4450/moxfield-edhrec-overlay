@@ -196,6 +196,21 @@ try {
     console.log('   (could not switch to Visual Grid; hovering whatever is here)');
   }
 
+  // --- Game Changer: ours shows only where Moxfield's does not ---------------
+  // Moxfield prints its own fa-gauge icon beside game changers, but only in the
+  // text views. We must fill the gap in image views and stay quiet in text
+  // ones, so assert the invariant rather than a fixed expectation.
+  const gc = await page.evaluate(() => {
+    const moxIcons = [...document.querySelectorAll('.fa-gauge[id*="-brackets-"]')].filter((e) => e.offsetParent);
+    const ours = [...document.querySelectorAll('.edhrec-badge.edhrec-game-changer')];
+    return { mox: moxIcons.length, ours: ours.length, view: 'image' };
+  });
+  check(
+    !(gc.mox > 0 && gc.ours > 0),
+    'game-changer marker is not duplicated',
+    `(moxfield ${gc.mox}, ours ${gc.ours} in an image view)`
+  );
+
   const tiles = await page.$$('.img-card');
   const timings = [];
   for (const tile of tiles.slice(0, 6)) {

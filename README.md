@@ -79,6 +79,27 @@ by the badge render, and the overlay degrades to rank-only. Cards EDHREC does no
 for your commander simply show no synergy line: 49 of 70 badges carried one on the deck
 last measured.
 
+### Game Changers: don't say it twice
+
+Moxfield marks game changers itself — but only in some views. Measured across all six:
+
+| View | Moxfield's per-card icon | Ours |
+|---|---|---|
+| Text, Condensed Text | `fal fa-gauge`, present | suppressed |
+| Visual Grid / Stacks / Split / Spoiler | **absent** | gold ring |
+
+So the ring fills a real gap rather than duplicating: it appears exactly where Moxfield
+shows nothing, which is also where the cards are largest. Moxfield's icon also carries
+`d-none d-md-inline`, so it vanishes on narrow screens — hence the check is on actual
+visibility, not mere presence.
+
+One trap worth knowing: matching the marker by its id pattern alone is wrong. Visual
+views carry a *different* element sharing the same `-brackets-<cardId>` id — a
+`companion-container cursor-pointer` tile wrapper, not an icon — and matching on the id
+suppressed our ring in precisely the views that needed it. The selector requires the
+`.fa-gauge` class for that reason. `verify-autorun.mjs` asserts the two markers are
+never both present.
+
 ### The hover preview
 
 The large card preview on the left is badged too, but it cannot use the same path as the

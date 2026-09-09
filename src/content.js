@@ -51,7 +51,7 @@
   /** Only these list memberships say something a rank does not. */
   const NOTABLE_LISTS = /high synergy|top cards|game changer|new cards/i;
 
-  function tooltipFor(name, info) {
+  function tooltipFor(name, info, moxfieldFlagsGameChanger = false) {
     const lines = [name];
     lines.push(info?.rank == null ? 'Not ranked on EDHREC' : `EDHREC rank #${info.rank.toLocaleString()}`);
 
@@ -76,7 +76,9 @@
       if (tags.length) lines.push(`Listed under ${tags.join(', ')}`);
     }
 
-    if (info?.gameChanger) lines.push('⚠ Commander Game Changer');
+    // Moxfield prints its own Game Changer icon in text views; no need to say
+    // it twice on the same row.
+    if (info?.gameChanger && !moxfieldFlagsGameChanger) lines.push('⚠ Commander Game Changer');
 
     const salt = statFor(name, edhrec.salt);
     if (typeof salt === 'number') lines.push(`Salt ${salt.toFixed(2)} — top 100 saltiest`);
@@ -85,7 +87,7 @@
     return lines.join('\n');
   }
 
-  function buildBadge(name, info) {
+  function buildBadge(name, info, moxfieldFlagsGameChanger = false) {
     const el = document.createElement('a');
     el.className = 'edhrec-badge';
     // Lets a live host tell whether it is already showing this card.
@@ -100,9 +102,13 @@
     } else {
       el.classList.add(tierFor(info.rank));
       el.textContent = `#${info.rank.toLocaleString()}`;
-      if (info.gameChanger) el.classList.add('edhrec-game-changer');
+      // The gold ring is suppressed only where Moxfield is already showing its
+      // own marker - text views. In every visual view it is the sole indicator.
+      if (info.gameChanger && !moxfieldFlagsGameChanger) el.classList.add('edhrec-game-changer');
     }
-    el.title = tooltipFor(name, info);
+    // Remembered so a later tooltip repaint keeps making the same choice.
+    if (moxfieldFlagsGameChanger) el.dataset.moxGameChanger = '1';
+    el.title = tooltipFor(name, info, moxfieldFlagsGameChanger);
 
     // Moxfield's tiles are themselves clickable; don't trigger their handler.
     el.addEventListener('click', (e) => e.stopPropagation());
@@ -149,7 +155,7 @@
         // Badges are already on the page; only their tooltips need to change.
         for (const b of document.querySelectorAll('.edhrec-badge')) {
           const name = b.dataset.cardName;
-          if (name) b.title = tooltipFor(name, rankCache.get(name));
+          if (name) b.title = tooltipFor(name, rankCache.get(name), b.dataset.moxGameChanger === '1');
         }
       })
       .catch((err) => console.warn('[edhrec-overlay] edhrec lookup failed:', err.message))
@@ -194,7 +200,7 @@
         if (!t.host.isConnected) continue;
         // A live host may have moved on to another card in the meantime.
         if (t.live && dom.badgedName(t.mount) === t.name) continue;
-        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name)));
+        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name), t.moxfieldFlagsGameChanger));
       }
     } finally {
       running = false;
@@ -218,7 +224,8 @@
     let needsLookup = false;
     for (const t of dom.findPreviewTargets()) {
       if (dom.badgedName(t.mount) === t.name) continue;
-      if (rankCache.has(t.name)) dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name)));
+      if (rankCache.has(t.name))
+        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name), t.moxfieldFlagsGameChanger));
       else needsLookup = true;
     }
     if (needsLookup) schedule();
