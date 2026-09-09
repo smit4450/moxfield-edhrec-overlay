@@ -268,6 +268,10 @@
   /** Place the tooltip above the badge, flipping or clamping at the edges. */
   function positionTip(badge) {
     const root = tipRoot();
+    // A rescan can replace the badge between hover and show. A detached node
+    // measures as all zeros, which would fling the tooltip to the top-left
+    // corner rather than leave it near the card.
+    if (!badge.isConnected) return hideTip();
     const b = badge.getBoundingClientRect();
     const t = root.getBoundingClientRect();
     const margin = 8;
@@ -282,15 +286,45 @@
     root.style.top = `${Math.round(top)}px`;
   }
 
+  function paintTip(badge, name) {
+    renderTip(tooltipModel(name, rankCache.get(name), badge.dataset.moxGameChanger === '1'));
+    // Measure with it laid out but still transparent, or the first frame jumps.
+    positionTip(badge);
+  }
+
   function showTip(badge) {
     const name = badge.dataset.cardName;
     if (!name) return;
-    const m = tooltipModel(name, rankCache.get(name), badge.dataset.moxGameChanger === '1');
-    renderTip(m);
-    // Measure with it laid out but still transparent, or the first frame jumps.
-    positionTip(badge);
+    paintTip(badge, name);
     tipRoot().classList.add('is-visible');
     tipFor = badge;
+
+    // Self-healing. Every path that creates a badge resolves its rank first, so
+    // a cache miss here should be impossible - but "should be impossible" is
+    // exactly what produces a tooltip that says "unranked" until you hover it a
+    // second time. Rather than trust the invariant, fetch what is missing and
+    // repaint if this tooltip is still the one on screen.
+    if (rankCache.has(name)) return;
+    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-ranks', names: [name] }))
+      .then((res) => {
+        if (!res?.ok) return;
+        rankCache.set(name, res.ranks[name] ?? null);
+        if (tipFor === badge && badge.isConnected) paintTip(badge, name);
+
+        // The badge face came from the same missing entry, so repair it too.
+        // A rescan would not: findTargets() skips hosts already marked done.
+        const info = rankCache.get(name);
+        if (badge.isConnected && info?.rank != null && badge.textContent === '—') {
+          badge.classList.remove('edhrec-unranked');
+          badge.classList.add(tierFor(info.rank));
+          badge.textContent = `#${info.rank.toLocaleString()}`;
+          badge.setAttribute(
+            'aria-label',
+            plainSummary(tooltipModel(name, info, badge.dataset.moxGameChanger === '1'))
+          );
+        }
+      })
+      .catch((err) => console.warn('[edhrec-overlay] tooltip backfill failed:', err.message));
   }
 
   function hideTip() {

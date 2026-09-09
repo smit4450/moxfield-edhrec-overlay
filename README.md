@@ -39,6 +39,13 @@ flips below the badge when there is no room above, and clamps to the viewport.
 the first second. The same content goes to `aria-label`, so it stays available to screen
 readers, and the tooltip is keyboard-reachable via focus.
 
+The tooltip also **backfills its own data**. Every path that creates a badge resolves the
+rank first, so a cache miss at hover time should be impossible — but "should be
+impossible" is exactly what produces a tooltip reading `unranked` until you hover it a
+second time. Rather than trust the invariant, a miss triggers a lookup and repaints the
+tooltip, and repairs the badge face in place. (Note that a plain rescan would *not* fix
+the badge: `findTargets()` skips hosts already marked done.)
+
 The rank comes from Scryfall's card object:
 
 > `edhrec_rank` · Integer · Nullable — "This card's overall rank/popularity on EDHREC.
