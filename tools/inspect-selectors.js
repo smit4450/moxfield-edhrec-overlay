@@ -5,11 +5,13 @@
  * disagrees with reality, so a Moxfield deploy that breaks the overlay shows up
  * as a concrete number rather than "no badges appeared".
  *
- * Baseline from 2026-09-09 (a 78-distinct-name deck):
+ * Measured baseline, 2026-09-09:
  *   .img-card                 88   all <img>, all with a non-empty alt
- *   in skip containers        11   7 sample-hand + 2 sidebar previews x 2 faces
- *   junk alts                  3   "Transform", "Front", "Back"
- *   badgeable tiles           77
+ *   in skip containers        13   7 sample-hand + 2 previews x 3 images
+ *   junk alts                  0   every junk alt sits inside a skip container
+ *   badgeable images          75
+ *   distinct tiles            75   1:1, no collisions
+ *   badges                    75   injected == expected
  *
  * Not part of the extension; never shipped.
  */

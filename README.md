@@ -60,10 +60,16 @@ Verified against a live deck page on **2026-09-09** with
 
 | | |
 |---|---|
-| `.img-card` | **88** — all `<img>`, all with a non-empty `alt` |
-| in skip containers | 11 — sample hand + sidebar previews |
-| junk `alt` values | 3 — `"Transform"`, `"Front"`, `"Back"` |
-| badgeable tiles | **77** |
+| `.img-card` on page | **88** — all `<img>`, all with a non-empty `alt` |
+| in skip containers | 13 — 7 sample-hand + 2 previews × 3 images |
+| junk `alt` values | 0 — every one sits inside a skip container |
+| badgeable images | **75** |
+| distinct `.img-card-visual` tiles | **75** — 1:1, no collisions |
+| badges injected | **75** — matches expected, no strays |
+
+The junk alts (`"Transform"`, `"Front"`, `"Back"`) turned out to live entirely inside the
+sidebar previews, which contribute 3 images each rather than 2. Skipping those containers
+removes them before the name filter ever sees them, which is why the junk count reads 0.
 
 `.img-card` sits on the `<img>` itself, so the name (`alt`) and the element are the same
 thing. The badge is anchored one level out, on **`.img-card-visual`** — the per-card tile.
