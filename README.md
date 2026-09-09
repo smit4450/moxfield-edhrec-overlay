@@ -65,8 +65,17 @@ content.js ──▶ background.js ──▶ POST api.scryfall.com/cards/collect
 ```
 
 A 100-card Commander deck is **two requests, ~1 second**, then nothing until the cache
-expires. The cache key carries a version (`rank:v2:`); bumping it retires entries whose
-values a fix has invalidated, and older-version entries are purged on startup. All Moxfield tabs share one queue and one cache in the background script, so
+expires. Cache keys carry a version (`rank:v2:`, `edhrec:v3:`); bumping one retires
+entries whose values a fix has invalidated, and superseded entries in every family are
+purged on startup.
+
+**Bumping a version means changing the value, not the identifier.** Splitting the EDHREC
+version out of `CACHE_VERSION` while keeping the value `v2` left the key byte-identical,
+so nothing was invalidated: browsers kept serving the previous payload shape, the
+recommendations panel saw no lists and never rendered, and synergy vanished from
+tooltips — while a wiped test profile passed every check. Reads are now shape-checked as
+well as version-checked, so a fumbled bump cannot serve garbage, and
+`tools/test-lookup.mjs` primes a stale entry to prove it. All Moxfield tabs share one queue and one cache in the background script, so
 the rate limit holds no matter how many tabs are open.
 
 The badge also surfaces Scryfall's `game_changer` flag (the Commander Game Changer list)

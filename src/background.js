@@ -32,15 +32,28 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_VERSION = 'v2';
 const CACHE_PREFIX = `rank:${CACHE_VERSION}:`;
 
-/** Drop entries left behind by an older cache version. */
+/**
+ * Drop entries left behind by an older cache version, across every family.
+ *
+ * Previously this only swept `rank:`, so superseded EDHREC and salt entries
+ * accumulated instead of being cleaned up.
+ */
 async function purgeStaleCacheVersions() {
+  // Deferred to the end of the file: the current-key constants are declared
+  // below, and reading them here would hit the temporal dead zone.
+  const families = [
+    ['rank:', CACHE_PREFIX],
+    ['edhrec:', EDHREC_PREFIX],
+    ['salt:', SALT_KEY],
+  ];
   const all = await api.storage.local.get(null);
-  const dead = Object.keys(all).filter((k) => k.startsWith('rank:') && !k.startsWith(CACHE_PREFIX));
+  const dead = Object.keys(all).filter((k) =>
+    families.some(([family, current]) => k.startsWith(family) && !k.startsWith(current))
+  );
   if (!dead.length) return;
   await api.storage.local.remove(dead);
   console.info(`[edhrec-overlay] cleared ${dead.length} cache entries from an older version`);
 }
-purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 /** Serial queue — guarantees we never exceed the documented rate limit. */
 let queueTail = Promise.resolve();
@@ -218,10 +231,18 @@ const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * on its own schedule, and bumping it should not throw away every rank and
  * force a full Scryfall refetch.
  *
- * v2: the cached value gained `lists` (ordered recommendations) and a Scryfall
- * `id` per card, so v1 entries are the wrong shape.
+ * v3: the cached value gained `lists` (ordered recommendations) and a Scryfall
+ * `id` per card, so earlier entries are the wrong shape.
+ *
+ * v2 was a mistake worth recording: this constant was split out of
+ * CACHE_VERSION but kept the same VALUE, so the key stayed "edhrec:v2:" and
+ * nothing was invalidated. Browsers carried on serving the old shape, the
+ * panel saw no lists and never rendered, and synergy silently vanished from
+ * tooltips. Bumping a version means changing the value, not the identifier -
+ * and see the shape check in commanderStats(), which now catches this class of
+ * error even when the version is fumbled.
  */
-const EDHREC_VERSION = 'v2';
+const EDHREC_VERSION = 'v3';
 const EDHREC_PREFIX = `edhrec:${EDHREC_VERSION}:`;
 const SALT_KEY = `salt:${EDHREC_VERSION}`;
 
@@ -306,7 +327,9 @@ async function commanderStats(names) {
   for (const slug of candidates) {
     const key = EDHREC_PREFIX + slug;
     const cached = await readJsonCache(key, EDHREC_TTL_MS);
-    if (cached) return cached;
+    // Belt as well as braces: refetch anything that is not the shape this
+    // build expects, whatever the version string claims.
+    if (cached?.stats && Array.isArray(cached.lists)) return cached;
 
     try {
       // Not on the Scryfall queue: that queue exists to honour Scryfall's
@@ -367,6 +390,8 @@ async function edhrecForDeck(commanderNames) {
     matched: Boolean(page),
   };
 }
+
+purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'lookup-ranks') {

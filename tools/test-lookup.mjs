@@ -25,9 +25,14 @@ globalThis.browser = {
   storage: {
     local: {
       get: async (keys) =>
-        Object.fromEntries(keys.filter((k) => store.has(k)).map((k) => [k, store.get(k)])),
+        keys === null
+          ? Object.fromEntries(store)
+          : Object.fromEntries(keys.filter((k) => store.has(k)).map((k) => [k, store.get(k)])),
       set: async (patch) => {
         for (const [k, v] of Object.entries(patch)) store.set(k, v);
+      },
+      remove: async (keys) => {
+        for (const k of [].concat(keys)) store.delete(k);
       },
     },
   },
@@ -37,7 +42,7 @@ globalThis.browser = {
 // Firefox supplies its own User-Agent. Node does not, and Scryfall rejects a
 // default library UA with HTTP 400 (rule: generic_user_agent).
 const realFetch = globalThis.fetch;
-globalThis.fetch = (url, opts = {}) =>
+const uaFetch = (url, opts = {}) =>
   realFetch(url, {
     ...opts,
     headers: {
@@ -45,9 +50,26 @@ globalThis.fetch = (url, opts = {}) =>
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0',
     },
   });
+globalThis.fetch = uaFetch;
 
 const src = readFileSync(join(root, 'src', 'background.js'), 'utf8');
-const lookup = await (0, eval)(`(async () => { ${src}\n; return lookup; })()`);
+// Prime the cache with a PREVIOUS payload shape before the module loads, so the
+// stale-cache check below exercises what a real upgrade actually hits.
+//
+// This is the bug that shipped: the EDHREC cache version was split out of
+// CACHE_VERSION but kept the same VALUE, so the key never changed. Browsers kept
+// serving a payload with no lists, the recommendations panel rendered nothing,
+// and synergy silently vanished from tooltips.
+for (const v of ['v1', 'v2', 'v3']) {
+  store.set(`edhrec:${v}:bria-riptide-rogue`, {
+    ts: Date.now(),
+    value: { 'sol ring': { name: 'Sol Ring', synergy: 0.017 } },
+  });
+}
+
+const { lookup, edhrecForDeck } = await (0, eval)(
+  `(async () => { ${src}\n; return { lookup, edhrecForDeck }; })()`
+);
 
 // `ranked: false` means we expect a resolved card with no EDHREC rank, or no
 // card at all — not a failure.
@@ -86,6 +108,18 @@ const replayed = Object.keys(replay).length;
 const cacheOk = calls === 0 && replayed === CASES.length;
 if (!cacheOk) failures++;
 console.log(`\n${cacheOk ? '  ok  ' : ' FAIL '} cache replay: ${calls} network calls, ${replayed}/${CASES.length} resolved`);
+
+// --- stale / wrong-shape cache must not be served ---------------------------
+// The cache-replay check above swapped fetch for a throwing stub; this section
+// needs the network again.
+globalThis.fetch = uaFetch;
+const edh = await edhrecForDeck(['Bria, Riptide Rogue']);
+const shapeOk = Object.keys(edh.stats).length > 50 && Array.isArray(edh.lists) && edh.lists.length > 0;
+if (!shapeOk) failures++;
+console.log(
+  `${shapeOk ? '  ok  ' : ' FAIL '} stale-shaped cache is refetched, not served  ` +
+    `(${Object.keys(edh.stats).length} stats, ${edh.lists.length} lists)`
+);
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} check(s) failed`);
 process.exitCode = failures === 0 ? 0 : 1;
