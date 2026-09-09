@@ -10,16 +10,34 @@ neighbors — [Moxfield Card Pricer][pricer], [Moxfield to Scryfall Linker][link
 
 ## How it works
 
-The badge face is a rank, from Scryfall. Everything else lives in its tooltip:
+The badge face is a rank, from Scryfall. Everything else lives in a styled tooltip:
 
 ```
-Rhystic Study
-EDHREC rank #44
-Synergy -6.2% with Bria, Riptide Rogue
-In 16.7% of those decks (1,674 of 10,014)
-⚠ Commander Game Changer
-Salt 2.73 — top 100 saltiest
+┌──────────────────────────────────────┐
+│ Ral, Crackling Wit             #2,209│
+├──────────────────────────────────────┤
+│ Synergy                        +58.8%│   ← green; red when negative
+│ vs. decks that could play it         │
+│ Played in                       70.0%│
+│ ████████████████░░░░░░░              │
+│ 7,013 of 10,014 decks                │
+│ ( High Synergy Cards )               │
+├──────────────────────────────────────┤
+│ Bria, Riptide Rogue · click to open  │
+└──────────────────────────────────────┘
 ```
+
+It replaces the native `title` tooltip, which is OS-rendered: about a second before it
+appears, no structure, and no way to make a negative synergy read differently from a
+positive one. One shared element lives on `<body>` and is repositioned per hover —
+per-badge listeners would mean thousands being attached and torn down as React
+reconciles the deck, so the tooltip delegates from the document and the badges stay
+inert. It is `pointer-events: none` so it can never swallow a click meant for a card,
+flips below the badge when there is no room above, and clamps to the viewport.
+
+`title` is removed rather than kept as a fallback: both would show, and the OS one wins
+the first second. The same content goes to `aria-label`, so it stays available to screen
+readers, and the tooltip is keyboard-reachable via focus.
 
 The rank comes from Scryfall's card object:
 

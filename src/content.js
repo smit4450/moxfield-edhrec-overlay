@@ -51,40 +51,61 @@
   /** Only these list memberships say something a rank does not. */
   const NOTABLE_LISTS = /high synergy|top cards|game changer|new cards/i;
 
-  function tooltipFor(name, info, moxfieldFlagsGameChanger = false) {
-    const lines = [name];
-    lines.push(info?.rank == null ? 'Not ranked on EDHREC' : `EDHREC rank #${info.rank.toLocaleString()}`);
-
+  /**
+   * Structured description of one card, rendered by the tooltip and flattened
+   * for the accessible label. Building a model rather than a string is what
+   * lets a negative synergy be coloured differently from a positive one.
+   */
+  function tooltipModel(name, info, moxfieldFlagsGameChanger = false) {
+    const model = { name, rank: info?.rank ?? null, rows: [], chips: [] };
     const stat = statFor(name, edhrec.stats);
-    if (stat) {
-      if (typeof stat.synergy === 'number') {
-        // Synergy is inclusion-with-this-commander minus inclusion-everywhere,
-        // so the sign matters and a leading + is worth spelling out.
-        const sign = stat.synergy >= 0 ? '+' : '';
-        lines.push(`Synergy ${sign}${pct(stat.synergy)}${edhrec.commander ? ` with ${edhrec.commander}` : ''}`);
-      }
-      if (typeof stat.inclusion === 'number') {
-        lines.push(
-          `In ${pct(stat.inclusion)} of those decks (${stat.numDecks.toLocaleString()} of ${stat.potentialDecks.toLocaleString()})`
-        );
-      }
-      // Drop "Game Changers" when Scryfall already flags it below, or the
-      // tooltip says the same thing twice from two different sources.
-      const tags = (stat.lists || []).filter(
-        (l) => NOTABLE_LISTS.test(l) && !(info?.gameChanger && /game changer/i.test(l))
-      );
-      if (tags.length) lines.push(`Listed under ${tags.join(', ')}`);
+
+    if (stat && typeof stat.synergy === 'number') {
+      // Synergy is inclusion-with-this-commander minus inclusion-everywhere, so
+      // the sign carries the meaning and drives the colour.
+      model.rows.push({
+        label: 'Synergy',
+        value: `${stat.synergy >= 0 ? '+' : ''}${pct(stat.synergy)}`,
+        tone: stat.synergy >= 0 ? 'pos' : 'neg',
+        sub: 'vs. decks that could play it',
+      });
+    }
+    if (stat && typeof stat.inclusion === 'number') {
+      model.rows.push({
+        label: 'Played in',
+        value: pct(stat.inclusion),
+        bar: stat.inclusion,
+        sub: `${stat.numDecks.toLocaleString()} of ${stat.potentialDecks.toLocaleString()} decks`,
+      });
     }
 
-    // Moxfield prints its own Game Changer icon in text views; no need to say
-    // it twice on the same row.
-    if (info?.gameChanger && !moxfieldFlagsGameChanger) lines.push('⚠ Commander Game Changer');
-
+    if (stat) {
+      // Drop "Game Changers" when it is already shown as its own chip below.
+      for (const l of stat.lists || []) {
+        if (NOTABLE_LISTS.test(l) && !(info?.gameChanger && /game changer/i.test(l))) {
+          model.chips.push({ text: l });
+        }
+      }
+    }
+    // Moxfield prints its own icon in text views; no need to say it twice.
+    if (info?.gameChanger && !moxfieldFlagsGameChanger) {
+      model.chips.push({ text: 'Game Changer', kind: 'gc' });
+    }
     const salt = statFor(name, edhrec.salt);
-    if (typeof salt === 'number') lines.push(`Salt ${salt.toFixed(2)} — top 100 saltiest`);
+    if (typeof salt === 'number') {
+      model.chips.push({ text: `Salt ${salt.toFixed(2)}`, kind: 'salt' });
+    }
 
-    lines.push('Click to open on EDHREC');
-    return lines.join('\n');
+    model.commander = edhrec.commander;
+    return model;
+  }
+
+  /** Flattened for `aria-label`, since the visual tooltip is not readable. */
+  function plainSummary(m) {
+    const parts = [m.name, m.rank == null ? 'not ranked on EDHREC' : `EDHREC rank ${m.rank.toLocaleString()}`];
+    for (const r of m.rows) parts.push(`${r.label} ${r.value}${r.sub ? ` (${r.sub})` : ''}`);
+    for (const c of m.chips) parts.push(c.text);
+    return parts.join('. ');
   }
 
   function buildBadge(name, info, moxfieldFlagsGameChanger = false) {
@@ -108,7 +129,9 @@
     }
     // Remembered so a later tooltip repaint keeps making the same choice.
     if (moxfieldFlagsGameChanger) el.dataset.moxGameChanger = '1';
-    el.title = tooltipFor(name, info, moxfieldFlagsGameChanger);
+    // No `title`: the native tooltip would race our own and win the first
+    // second. The same content goes to aria-label so it stays readable.
+    el.setAttribute('aria-label', plainSummary(tooltipModel(name, info, moxfieldFlagsGameChanger)));
 
     // Moxfield's tiles are themselves clickable; don't trigger their handler.
     el.addEventListener('click', (e) => e.stopPropagation());
@@ -155,7 +178,14 @@
         // Badges are already on the page; only their tooltips need to change.
         for (const b of document.querySelectorAll('.edhrec-badge')) {
           const name = b.dataset.cardName;
-          if (name) b.title = tooltipFor(name, rankCache.get(name), b.dataset.moxGameChanger === '1');
+          if (!name) continue;
+          const m = tooltipModel(name, rankCache.get(name), b.dataset.moxGameChanger === '1');
+          b.setAttribute('aria-label', plainSummary(m));
+          // If this badge's tooltip is open right now, refresh it in place.
+          if (tipFor === b) {
+            renderTip(m);
+            positionTip(b);
+          }
         }
       })
       .catch((err) => console.warn('[edhrec-overlay] edhrec lookup failed:', err.message))
@@ -163,6 +193,139 @@
         edhrecLoading = false;
       });
   }
+
+  // ---------------------------------------------------------------------------
+  // Tooltip
+  //
+  // One shared element on <body>, positioned per hover. Per-badge listeners
+  // would mean thousands of them being attached and torn down as React
+  // reconciles the deck, so this delegates from the document instead and the
+  // badges themselves stay inert.
+  // ---------------------------------------------------------------------------
+
+  const TIP_DELAY_MS = 110;
+  let tipEl = null;
+  let tipTimer = null;
+  let tipFor = null;
+
+  function tipRoot() {
+    if (!tipEl) {
+      tipEl = document.createElement('div');
+      tipEl.className = 'edhrec-tip';
+      tipEl.setAttribute('role', 'presentation');
+      document.body.appendChild(tipEl);
+    }
+    return tipEl;
+  }
+
+  const div = (cls, text) => {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    // textContent, never innerHTML: card names come off the page.
+    if (text != null) d.textContent = text;
+    return d;
+  };
+
+  function renderTip(m) {
+    const root = tipRoot();
+    root.replaceChildren();
+
+    const head = div('edhrec-tip-head');
+    head.append(div('edhrec-tip-name', m.name));
+    head.append(div('edhrec-tip-rank', m.rank == null ? 'unranked' : `#${m.rank.toLocaleString()}`));
+    root.append(head);
+
+    for (const r of m.rows) {
+      const row = div('edhrec-tip-row');
+      row.append(div('edhrec-tip-label', r.label));
+      row.append(div(`edhrec-tip-value${r.tone ? ` edhrec-tip-${r.tone}` : ''}`, r.value));
+      root.append(row);
+      if (r.bar != null) {
+        const bar = div('edhrec-tip-bar');
+        const fill = document.createElement('i');
+        fill.style.width = `${Math.max(0, Math.min(1, r.bar)) * 100}%`;
+        bar.append(fill);
+        root.append(bar);
+      }
+      if (r.sub) root.append(div('edhrec-tip-sub', r.sub));
+    }
+
+    if (m.chips.length) {
+      const chips = div('edhrec-tip-chips');
+      for (const c of m.chips) {
+        chips.append(div(`edhrec-tip-chip${c.kind ? ` is-${c.kind}` : ''}`, c.text));
+      }
+      root.append(chips);
+    }
+
+    // Keep the click affordance: the badge is a link, and nothing else says so.
+    root.append(
+      div('edhrec-tip-foot', m.commander ? `${m.commander} · click to open on EDHREC` : 'Click to open on EDHREC')
+    );
+    return root;
+  }
+
+  /** Place the tooltip above the badge, flipping or clamping at the edges. */
+  function positionTip(badge) {
+    const root = tipRoot();
+    const b = badge.getBoundingClientRect();
+    const t = root.getBoundingClientRect();
+    const margin = 8;
+
+    let left = b.left + b.width / 2 - t.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - t.width - margin));
+
+    let top = b.top - t.height - margin;
+    if (top < margin) top = b.bottom + margin;
+
+    root.style.left = `${Math.round(left)}px`;
+    root.style.top = `${Math.round(top)}px`;
+  }
+
+  function showTip(badge) {
+    const name = badge.dataset.cardName;
+    if (!name) return;
+    const m = tooltipModel(name, rankCache.get(name), badge.dataset.moxGameChanger === '1');
+    renderTip(m);
+    // Measure with it laid out but still transparent, or the first frame jumps.
+    positionTip(badge);
+    tipRoot().classList.add('is-visible');
+    tipFor = badge;
+  }
+
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipFor = null;
+    if (tipEl) tipEl.classList.remove('is-visible');
+  }
+
+  document.addEventListener(
+    'mouseover',
+    (e) => {
+      const badge = e.target?.closest?.('.edhrec-badge');
+      if (!badge || badge === tipFor) return;
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => showTip(badge), TIP_DELAY_MS);
+    },
+    true
+  );
+
+  document.addEventListener(
+    'mouseout',
+    (e) => {
+      if (e.target?.closest?.('.edhrec-badge')) hideTip();
+    },
+    true
+  );
+
+  // Keyboard parity, and the position is stale the moment anything scrolls.
+  document.addEventListener('focusin', (e) => {
+    const badge = e.target?.closest?.('.edhrec-badge');
+    if (badge) showTip(badge);
+  });
+  document.addEventListener('focusout', hideTip);
+  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('resize', hideTip);
 
   let running = false;
   let rescanQueued = false;

@@ -83,3 +83,144 @@
   padding: 0 4px;
   font-size: 10px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Tooltip
+ *
+ * Replaces the native `title` tooltip, which is OS-rendered: ~1s before it
+ * appears, no structure, no colour, and no way to make a negative synergy read
+ * differently from a positive one at a glance.
+ *
+ * One shared element lives on <body> and is repositioned per hover, so badges
+ * stay cheap to create and destroy. Deliberately dark in both themes - it is a
+ * floating surface, not part of the page - and pointer-transparent so it can
+ * never eat a click meant for a card.
+ * ------------------------------------------------------------------------- */
+
+.edhrec-tip {
+  position: fixed;
+  z-index: 2147483000;
+  left: 0;
+  top: 0;
+  max-width: 300px;
+  padding: 9px 11px 8px;
+
+  border: 1px solid #2f3846;
+  border-radius: 8px;
+  background: #11161f;
+  color: #e6eaf0;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+
+  font: 400 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.09s ease;
+}
+
+.edhrec-tip.is-visible {
+  opacity: 1;
+}
+
+.edhrec-tip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #232c39;
+}
+
+.edhrec-tip-name {
+  font-weight: 650;
+  font-size: 13px;
+  color: #fff;
+}
+
+.edhrec-tip-rank {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: #93a1b5;
+  white-space: nowrap;
+}
+
+/* One stat: label on the left, value hard right, so the numbers form a column. */
+.edhrec-tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.edhrec-tip-label {
+  color: #9aa8bc;
+  white-space: nowrap;
+}
+
+.edhrec-tip-value {
+  margin-left: auto;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.edhrec-tip-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: #93a1b5;
+}
+
+/* Synergy is the one number whose sign carries the meaning. */
+.edhrec-tip-pos { color: #4ade80; }
+.edhrec-tip-neg { color: #f87171; }
+
+/* Inclusion reads faster as a bar than as a decimal. */
+.edhrec-tip-bar {
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: #232c39;
+  overflow: hidden;
+}
+
+.edhrec-tip-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #60a5fa;
+}
+
+.edhrec-tip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.edhrec-tip-chip {
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: #1e2937;
+  color: #b9c6d8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.edhrec-tip-chip.is-gc {
+  background: #3b2f0b;
+  color: #fbbf24;
+}
+
+.edhrec-tip-chip.is-salt {
+  background: #3a1d1d;
+  color: #fca5a5;
+}
+
+.edhrec-tip-foot {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid #232c39;
+  font-size: 11px;
+  color: #7d8ba1;
+}

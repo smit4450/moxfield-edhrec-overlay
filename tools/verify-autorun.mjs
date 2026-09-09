@@ -122,16 +122,18 @@ try {
   // reachable from page.evaluate here. Everything below is read from the shared
   // DOM the extension actually produced, which is the better test anyway.
   const edh = await page.evaluate(() => {
-    const titles = [...document.querySelectorAll('.edhrec-badge')].map((b) => b.title || '');
+    const titles = [...document.querySelectorAll('.edhrec-badge')].map(
+      (b) => b.getAttribute('aria-label') || ''
+    );
     const desc = document.querySelector('meta[property="og:description"]')?.content || '';
     return {
       commanders: (desc.match(/featuring\s+(.+?)\s+by\s/i)?.[1] ?? '').trim() || null,
       withSynergy: titles.filter((t) => /Synergy [+-]/.test(t)).length,
-      withInclusion: titles.filter((t) => /In [\d.]+% of those decks/.test(t)).length,
-      withList: titles.filter((t) => /Listed under/.test(t)).length,
+      withInclusion: titles.filter((t) => /Played in [\d.]+%/.test(t)).length,
+      withList: titles.filter((t) => /High Synergy Cards|Top Cards|New Cards|Game Changer/.test(t)).length,
       withSalt: titles.filter((t) => /Salt \d/.test(t)).length,
       total: titles.length,
-      richest: titles.slice().sort((a, b) => b.split('\n').length - a.split('\n').length)[0] || '',
+      richest: titles.slice().sort((a, b) => b.split('. ').length - a.split('. ').length)[0] || '',
     };
   });
 
@@ -141,7 +143,7 @@ try {
     check(edh.withInclusion > 0, 'inclusion % in tooltips', `(${edh.withInclusion}/${edh.total})`);
     console.log(`   list tags ${edh.withList}, salt ${edh.withSalt}`);
     console.log('\n   richest tooltip:');
-    for (const line of edh.richest.split('\n')) console.log('     ' + line);
+    for (const line of edh.richest.split('. ')) console.log('     ' + line);
   } else {
     console.log('   (deck has no commander; EDHREC enrichment correctly skipped)');
   }
@@ -194,6 +196,36 @@ try {
     await page.waitForTimeout(2500);
   } catch {
     console.log('   (could not switch to Visual Grid; hovering whatever is here)');
+  }
+
+  // --- Styled tooltip -------------------------------------------------------
+  // A leftover `title` would race our own tooltip and the OS would win the
+  // first second, so assert it is gone as well as that ours shows.
+  const anyTitle = await page.evaluate(
+    () => [...document.querySelectorAll('.edhrec-badge')].filter((b) => b.hasAttribute('title')).length
+  );
+  check(anyTitle === 0, 'no native title attributes left', `(${anyTitle} found)`);
+
+  const tipBadge = await page.$('.edhrec-badge');
+  if (tipBadge) {
+    await tipBadge.scrollIntoViewIfNeeded();
+    await tipBadge.hover();
+    await page.waitForTimeout(500);
+    const tip = await page.evaluate(() => {
+      const t = document.querySelector('.edhrec-tip');
+      if (!t) return null;
+      const r = t.getBoundingClientRect();
+      return {
+        visible: t.classList.contains('is-visible'),
+        onScreen: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth,
+        // Must not swallow clicks meant for the card underneath.
+        inert: getComputedStyle(t).pointerEvents === 'none',
+        lines: t.innerText.split('\n').filter(Boolean).length,
+      };
+    });
+    check(Boolean(tip?.visible), 'styled tooltip appears on hover');
+    check(Boolean(tip?.onScreen), 'tooltip stays inside the viewport');
+    check(Boolean(tip?.inert), 'tooltip does not intercept the pointer');
   }
 
   // --- Game Changer: ours shows only where Moxfield's does not ---------------
