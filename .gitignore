@@ -3,8 +3,7 @@
 *.zip
 .DS_Store
 .pw-ext/
-.pw-profile-ext/
-.pw-profile/
+.pw-profile*/
 .pw-shots/
 Thumbs.db
 node_modules/
