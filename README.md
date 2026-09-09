@@ -25,7 +25,8 @@ content.js ──▶ background.js ──▶ POST api.scryfall.com/cards/collect
 ```
 
 A 100-card Commander deck is **two requests, ~1 second**, then nothing until the cache
-expires. All Moxfield tabs share one queue and one cache in the background script, so
+expires. The cache key carries a version (`rank:v2:`); bumping it retires entries whose
+values a fix has invalidated, and older-version entries are purged on startup. All Moxfield tabs share one queue and one cache in the background script, so
 the rate limit holds no matter how many tabs are open.
 
 The badge also surfaces Scryfall's `game_changer` flag (the Commander Game Changer list)
@@ -39,6 +40,27 @@ as a gold ring, and links out to the card's EDHREC page.
 | `src/content.js` | MutationObserver loop, badge construction, injection |
 | `src/background.js` | Scryfall batching, rate limiting, persistent cache |
 | `src/badge.css` | Badge styling, scoped to `.edhrec-*` |
+| `tools/test-lookup.mjs` | Contract test for the Scryfall path — `node tools/test-lookup.mjs` |
+| `tools/inspect-selectors.js` | DOM regression check, pasted into the devtools console |
+
+### Multi-face cards
+
+Every multi-face layout — modal DFC, transform, split, adventure — needs two things
+right, and getting either wrong makes the card silently read as unranked.
+
+**Ask for the front face.** Scryfall's `name` identifier does not accept the combined
+`A // B` form at all. Verified 2026-09-09: `Fire // Ice`, `Bonecrusher Giant // Stomp`
+and `Malakir Rebirth // Malakir Mire` all came back `not_found`, while the front face
+alone resolved every one.
+
+**Index the reply under every alias.** A front-face query answers with the card's *full*
+name — ask for `Malakir Rebirth`, get back `Malakir Rebirth // Malakir Mire`. A response
+map keyed only on `card.name` therefore fails to match the very request that produced
+it. `indexCards()` registers each card under its full name, each face name, and the
+front-face split, with full names indexed first so a real card always beats another
+card's face.
+
+`tools/test-lookup.mjs` covers all four layouts in both spellings.
 
 ## Install (temporary, for development)
 
@@ -131,11 +153,8 @@ should need to change.
 - **Rank only, not full EDHREC data.** Synergy %, per-commander inclusion rate, and salt
   score are *not* in Scryfall. They live behind `json.edhrec.com/pages`, which is
   undocumented, unofficial, keyless, Cloudflare-fronted, and can break without notice.
-- **Name matching is imperfect.** Double-faced cards retry on the front face; tokens and
-  unrecognized names get a negative cache entry and show `—`. Verified 2026-09-09: the
-  full DFC name (`Fable of the Mirror-Breaker // Reflection of Kiki-Jiki`) is **not
-  found** by Scryfall, while the front face alone resolves — so the retry is load-bearing,
-  not defensive.
+- **Unrecognized names show `—`.** Tokens and bad reads get a negative cache entry so
+  they stop being re-requested. Genuine unranked cards (basic lands) also show `—`.
 
 ## Roadmap
 

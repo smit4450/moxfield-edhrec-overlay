@@ -20,7 +20,27 @@ const MIN_REQUEST_SPACING_MS = 550; // 500ms + margin
 // data changes rarely. edhrec_rank drifts slowly, so a week is plenty.
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const CACHE_PREFIX = 'rank:';
+/**
+ * Bumped whenever previously-cached values could be wrong, so entries written
+ * by an older build are ignored instead of served.
+ *
+ * v2: before the multi-face fix, every MDFC, transform, split and adventure
+ * card was negative-cached as `null`. Without a bump those entries would keep
+ * reporting "unranked" for the full 7-day TTL after the fix shipped, making the
+ * fix look like it had not worked.
+ */
+const CACHE_VERSION = 'v2';
+const CACHE_PREFIX = `rank:${CACHE_VERSION}:`;
+
+/** Drop entries left behind by an older cache version. */
+async function purgeStaleCacheVersions() {
+  const all = await api.storage.local.get(null);
+  const dead = Object.keys(all).filter((k) => k.startsWith('rank:') && !k.startsWith(CACHE_PREFIX));
+  if (!dead.length) return;
+  await api.storage.local.remove(dead);
+  console.info(`[edhrec-overlay] cleared ${dead.length} cache entries from an older version`);
+}
+purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 /** Serial queue — guarantees we never exceed the documented rate limit. */
 let queueTail = Promise.resolve();
@@ -65,13 +85,56 @@ function chunk(arr, size) {
 }
 
 /**
- * Double-faced cards reach us as "Front // Back". Scryfall usually resolves the
- * full string, but front-face-only is the reliable fallback on a miss.
+ * Every multi-face layout reaches us as "Front // Back".
+ *
+ * Scryfall's `name` identifier does NOT accept that combined form. Verified
+ * 2026-09-09: full-name requests came back not_found for split (Fire // Ice),
+ * adventure (Bonecrusher Giant // Stomp), modal_dfc (Malakir Rebirth // Malakir
+ * Mire) and transform (Fable of the Mirror-Breaker // ...) alike, while the
+ * front face alone resolved every one. So we always ask for the front face.
  */
 const frontFace = (name) => name.split('//')[0].trim();
 
+/**
+ * Index a Scryfall response so it can be matched back to whatever name we were
+ * given.
+ *
+ * This is the subtle half. A front-face query answers with the card's FULL
+ * name — ask for "Malakir Rebirth" and you get back "Malakir Rebirth // Malakir
+ * Mire". Keying the map on `card.name` alone therefore fails to match the very
+ * request that produced it, and every multi-face card silently reads as
+ * unranked even though its rank is right there in the payload.
+ *
+ * So index each card under its full name, each of its face names, and the
+ * front-face split of its full name. Full names are indexed first, so a real
+ * card's own name always wins if it ever collides with another card's face.
+ */
+function indexCards(cards) {
+  const byName = new Map();
+  const put = (key, value) => {
+    const k = (key || '').trim().toLowerCase();
+    if (k && !byName.has(k)) byName.set(k, value);
+  };
+
+  const entries = cards.map((card) => ({
+    card,
+    value: {
+      rank: card.edhrec_rank ?? null,
+      gameChanger: card.game_changer === true,
+      scryfallUri: card.scryfall_uri ?? null,
+    },
+  }));
+
+  for (const { card, value } of entries) put(card.name, value);
+  for (const { card, value } of entries) {
+    for (const face of card.card_faces || []) put(face.name, value);
+    put(frontFace(String(card.name)), value);
+  }
+  return byName;
+}
+
 async function fetchBatch(names) {
-  const identifiers = names.map((name) => ({ name }));
+  const identifiers = names.map((name) => ({ name: frontFace(name) }));
   const res = await fetch(SCRYFALL_COLLECTION, {
     method: 'POST',
     headers: {
@@ -89,15 +152,7 @@ async function fetchBatch(names) {
   if (!res.ok) throw new Error(`scryfall ${res.status}`);
 
   const body = await res.json();
-  const found = new Map();
-  for (const card of body.data || []) {
-    found.set(card.name.toLowerCase(), {
-      rank: card.edhrec_rank ?? null,
-      gameChanger: card.game_changer === true,
-      scryfallUri: card.scryfall_uri ?? null,
-    });
-  }
-  return found;
+  return indexCards(body.data || []);
 }
 
 /** Resolve names to rank records, hitting the network only for cache misses. */
@@ -118,34 +173,15 @@ async function lookup(names) {
       continue;
     }
 
-    const missed = [];
     for (const name of batch) {
-      const hit = found.get(name.toLowerCase());
-      if (hit) {
-        result[name] = hit;
-        resolved.push([name, hit]);
-      } else if (name.includes('//')) {
-        missed.push(name);
-      } else {
-        // Genuinely unknown to Scryfall (a token, or a broken name read).
-        // Cache the negative so we stop asking.
-        result[name] = null;
-        resolved.push([name, null]);
-      }
-    }
-
-    // Retry double-faced misses using just the front face.
-    if (missed.length) {
-      try {
-        const retry = await enqueue(() => fetchBatch(missed.map(frontFace)));
-        for (const name of missed) {
-          const hit = retry.get(frontFace(name).toLowerCase()) ?? null;
-          result[name] = hit;
-          resolved.push([name, hit]);
-        }
-      } catch (err) {
-        console.warn('[edhrec-overlay] DFC retry failed:', err.message);
-      }
+      // Look up under the name we were handed, then under its front face. The
+      // response is indexed under both, so this resolves whether Moxfield gave
+      // us "Malakir Rebirth" or "Malakir Rebirth // Malakir Mire".
+      const hit = found.get(name.toLowerCase()) ?? found.get(frontFace(name).toLowerCase()) ?? null;
+      // A miss here means Scryfall genuinely does not know the name (a token,
+      // or a bad read). Cache the negative so we stop asking.
+      result[name] = hit;
+      resolved.push([name, hit]);
     }
   }
 
