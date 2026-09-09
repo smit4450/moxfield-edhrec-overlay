@@ -10,7 +10,18 @@ neighbors — [Moxfield Card Pricer][pricer], [Moxfield to Scryfall Linker][link
 
 ## How it works
 
-The overlay never scrapes EDHREC. Scryfall's card object already carries the number:
+The badge face is a rank, from Scryfall. Everything else lives in its tooltip:
+
+```
+Rhystic Study
+EDHREC rank #44
+Synergy -6.2% with Bria, Riptide Rogue
+In 16.7% of those decks (1,674 of 10,014)
+⚠ Commander Game Changer
+Salt 2.73 — top 100 saltiest
+```
+
+The rank comes from Scryfall's card object:
 
 > `edhrec_rank` · Integer · Nullable — "This card's overall rank/popularity on EDHREC.
 > Not all cards are ranked." — [Scryfall Card Objects][cards]
@@ -20,8 +31,12 @@ So the whole data path is one well-documented, CORS-friendly, officially-support
 ```
 content.js ──▶ background.js ──▶ POST api.scryfall.com/cards/collection
    │               │                  (≤75 names/request, 2 req/sec)
+   │               ├──▶ json.edhrec.com/pages/commanders/<slug>.json
+   │               │        one request per DECK, ~270 cards, 24h cache
+   │               ├──▶ json.edhrec.com/pages/top/salt.json
+   │               │        one request ever, 7-day cache
    │               └──▶ storage.local cache, 7-day TTL
-   └──◀ rank map ──┘
+   └──◀ ranks + edhrec ──┘
 ```
 
 A 100-card Commander deck is **two requests, ~1 second**, then nothing until the cache
@@ -35,6 +50,34 @@ as a gold ring, and links out to the card's EDHREC page.
 It sits in the **bottom-left** of the card. The top-right is the mana cost, which is the
 one thing you most need to read at a glance; the bottom-left is the set-symbol area and
 the cheapest thing to cover.
+
+### EDHREC data
+
+Scryfall gives a card's *global* rank. Everything context-dependent lives on EDHREC, and
+one request per **deck** buys all of it:
+
+| | |
+|---|---|
+| Synergy | inclusion-with-this-commander minus inclusion-everywhere |
+| Inclusion | `In 16.7% of those decks (1,674 of 10,014)` |
+| List tags | High Synergy, Top Cards, Game Changers, New Cards |
+| Salt | from the global top-100 list |
+
+Synergy is the field a rank cannot express. Arcane Signet is **+2.9%** with Alania and
+**−0.2%** with Atraxa: played constantly, but it says nothing about either deck. A card
+at +71% is one that basically only exists for that commander.
+
+The commander is found from the `Commander (N)` group heading, falling back to the
+server-rendered `og:description` (*"A Commander deck featuring Bria, Riptide Rogue
+by…"*). Commander slugs are derived and verified against the live API for 10 commanders,
+including possessives, leading articles and a double-faced commander.
+
+**This is the one fragile dependency in the project.** `json.edhrec.com` is what
+edhrec.com's own frontend calls — no key, no Cloudflare, but undocumented and free to
+change, unlike Scryfall. So every EDHREC failure is swallowed, the fetch is never awaited
+by the badge render, and the overlay degrades to rank-only. Cards EDHREC does not list
+for your commander simply show no synergy line: 49 of 70 badges carried one on the deck
+last measured.
 
 ### The hover preview
 
@@ -215,11 +258,10 @@ same-host `/cards/<slug>` path with no image extension.
 - [ ] Badge the sample-hand widget (needs injected per-card wrappers)
 - [ ] **Sort a deck by EDHREC rank** — the real differentiator, since Moxfield won't
       build it natively
-- [ ] Options page: tier thresholds, badge position, on/off toggle
 - [ ] Optional bundled rank map built from [Scryfall bulk data][bulk] for instant,
       zero-network rendering (`oracle_id → edhrec_rank` is only a few hundred KB)
-- [ ] Per-commander inclusion % via `json.edhrec.com` — one request per deck, joined by
-      name. Fragile; keep it strictly opt-in.
+- [x] Per-commander synergy, inclusion, list tags and salt via `json.edhrec.com`
+- [ ] Options page: tier thresholds, badge position, toggle EDHREC enrichment off
 
 ## A note on scope and etiquette
 

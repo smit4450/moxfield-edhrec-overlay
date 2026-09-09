@@ -189,10 +189,168 @@ async function lookup(names) {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// EDHREC
+//
+// Scryfall gives us a card's global rank. Everything context-dependent - how
+// much more a card is played with THIS commander than in general, what share
+// of those decks run it - only exists on EDHREC.
+//
+// Unlike Scryfall this is an unofficial, undocumented API: json.edhrec.com is
+// what edhrec.com's own frontend calls. It needs no key and is not behind
+// Cloudflare, but it can change without notice, so every failure here is
+// swallowed and the overlay falls back to rank-only.
+//
+// Cost is one request per deck, not per card: a commander page carries
+// ~270-290 cards, which covered 100% of the average decklist for both
+// commanders measured.
+// ---------------------------------------------------------------------------
+
+const EDHREC_COMMANDER = 'https://json.edhrec.com/pages/commanders/';
+const EDHREC_SALT = 'https://json.edhrec.com/pages/top/salt.json';
+
+// Commander recommendations shift slowly; the saltiest-cards list barely moves.
+const EDHREC_TTL_MS = 24 * 60 * 60 * 1000;
+const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const EDHREC_PREFIX = `edhrec:${CACHE_VERSION}:`;
+const SALT_KEY = `salt:${CACHE_VERSION}`;
+
+/**
+ * EDHREC card slugs: front face only, lowercase, apostrophes dropped, every
+ * other run of non-alphanumerics collapsed to one hyphen. Verified against the
+ * live API for 10 commanders including possessives (Atraxa, Praetors' Voice),
+ * leading articles (The Ur-Dragon) and a double-faced commander (Esika, God of
+ * the Tree // The Prismatic Bridge -> esika-god-of-the-tree).
+ */
+function edhrecSlug(name) {
+  return name
+    .split('//')[0]
+    .trim()
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+async function readJsonCache(key, ttl) {
+  const stored = await api.storage.local.get([key]);
+  const hit = stored[key];
+  return hit && Date.now() - hit.ts < ttl ? hit.value : null;
+}
+
+const writeJsonCache = (key, value) => api.storage.local.set({ [key]: { value, ts: Date.now() } });
+
+/** Flatten a commander page into name -> the few fields we actually show. */
+function indexCommanderPage(page) {
+  const out = {};
+  for (const list of page?.container?.json_dict?.cardlists || []) {
+    const label = list.header || list.tag || '';
+    for (const c of list.cardviews || []) {
+      if (!c?.name) continue;
+      const key = c.name.toLowerCase();
+      const entry = (out[key] ||= { name: c.name, lists: [] });
+      // A card appears in several lists (a category plus, say, "Top Cards");
+      // the stats are identical, so first write wins and we just collect labels.
+      if (entry.synergy === undefined && typeof c.synergy === 'number') entry.synergy = c.synergy;
+      if (entry.inclusion === undefined && c.potential_decks > 0) {
+        entry.inclusion = c.num_decks / c.potential_decks;
+        entry.numDecks = c.num_decks;
+        entry.potentialDecks = c.potential_decks;
+      }
+      if (label && !entry.lists.includes(label)) entry.lists.push(label);
+    }
+  }
+  return out;
+}
+
+/**
+ * Stats for one commander (or a partner pair).
+ *
+ * Partner slugs join the two names, and EDHREC fixes the order, so a miss on
+ * the given order is retried reversed before giving up.
+ */
+async function commanderStats(names) {
+  const slugs = names.map(edhrecSlug).filter(Boolean);
+  if (!slugs.length) return null;
+
+  const candidates = slugs.length > 1 ? [slugs.join('-'), [...slugs].reverse().join('-')] : [slugs[0]];
+
+  for (const slug of candidates) {
+    const key = EDHREC_PREFIX + slug;
+    const cached = await readJsonCache(key, EDHREC_TTL_MS);
+    if (cached) return cached;
+
+    try {
+      // Not on the Scryfall queue: that queue exists to honour Scryfall's
+      // documented 2/sec limit, and borrowing it here would add 550ms of
+      // needless latency and delay the rank batches behind it. This is at
+      // most two requests per deck, then cached for a day.
+      const res = await fetch(EDHREC_COMMANDER + slug + '.json', { headers: { Accept: 'application/json' } });
+      if (!res.ok) continue;
+      const value = indexCommanderPage(await res.json());
+      if (!Object.keys(value).length) continue;
+      await writeJsonCache(key, value);
+      return value;
+    } catch (err) {
+      console.warn('[edhrec-overlay] commander fetch failed:', slug, err.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Saltiest 100 cards, as name -> score.
+ *
+ * Per-card salt would mean one request per card - about 100 for a Commander
+ * deck - so only the global top 100 is fetched. Salt is only interesting where
+ * it is high anyway, so the cards this misses are the ones nobody cares about.
+ */
+async function saltScores() {
+  const cached = await readJsonCache(SALT_KEY, SALT_TTL_MS);
+  if (cached) return cached;
+  try {
+    const res = await fetch(EDHREC_SALT, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return {};
+    const json = await res.json();
+    const out = {};
+    for (const list of json?.container?.json_dict?.cardlists || []) {
+      for (const c of list.cardviews || []) {
+        if (c?.name && typeof c.salt === 'number') out[c.name.toLowerCase()] = c.salt;
+      }
+    }
+    await writeJsonCache(SALT_KEY, out);
+    return out;
+  } catch (err) {
+    console.warn('[edhrec-overlay] salt fetch failed:', err.message);
+    return {};
+  }
+}
+
+/** Everything EDHREC can tell us about this deck, or null if it cannot. */
+async function edhrecForDeck(commanderNames) {
+  const [stats, salt] = await Promise.all([
+    commanderNames?.length ? commanderStats(commanderNames) : Promise.resolve(null),
+    saltScores(),
+  ]);
+  return { stats: stats || {}, salt: salt || {}, matched: Boolean(stats) };
+}
+
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== 'lookup-ranks') return false;
-  lookup(msg.names)
-    .then((ranks) => sendResponse({ ok: true, ranks }))
-    .catch((err) => sendResponse({ ok: false, error: String(err) }));
-  return true; // keep the message channel open for the async response
+  if (msg?.type === 'lookup-ranks') {
+    lookup(msg.names)
+      .then((ranks) => sendResponse({ ok: true, ranks }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true; // keep the message channel open for the async response
+  }
+
+  if (msg?.type === 'lookup-edhrec') {
+    edhrecForDeck(msg.commanders)
+      .then((data) => sendResponse({ ok: true, ...data }))
+      // EDHREC is a nice-to-have; never let it break the rank badges.
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  return false;
 });

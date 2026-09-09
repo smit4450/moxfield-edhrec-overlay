@@ -36,6 +36,55 @@
     return `https://edhrec.com/cards/${slug}`;
   }
 
+  /**
+   * Commander-specific EDHREC data for this deck.
+   *
+   * The badge face stays a rank - it has to fit in a card corner - so
+   * everything else lives in the tooltip.
+   */
+  let edhrec = { stats: {}, salt: {}, matched: false, commander: '' };
+
+  const frontFace = (n) => n.split('//')[0].trim().toLowerCase();
+  const statFor = (name, table) => table[name.toLowerCase()] ?? table[frontFace(name)];
+  const pct = (n) => `${(n * 100).toFixed(1)}%`;
+
+  /** Only these list memberships say something a rank does not. */
+  const NOTABLE_LISTS = /high synergy|top cards|game changer|new cards/i;
+
+  function tooltipFor(name, info) {
+    const lines = [name];
+    lines.push(info?.rank == null ? 'Not ranked on EDHREC' : `EDHREC rank #${info.rank.toLocaleString()}`);
+
+    const stat = statFor(name, edhrec.stats);
+    if (stat) {
+      if (typeof stat.synergy === 'number') {
+        // Synergy is inclusion-with-this-commander minus inclusion-everywhere,
+        // so the sign matters and a leading + is worth spelling out.
+        const sign = stat.synergy >= 0 ? '+' : '';
+        lines.push(`Synergy ${sign}${pct(stat.synergy)}${edhrec.commander ? ` with ${edhrec.commander}` : ''}`);
+      }
+      if (typeof stat.inclusion === 'number') {
+        lines.push(
+          `In ${pct(stat.inclusion)} of those decks (${stat.numDecks.toLocaleString()} of ${stat.potentialDecks.toLocaleString()})`
+        );
+      }
+      // Drop "Game Changers" when Scryfall already flags it below, or the
+      // tooltip says the same thing twice from two different sources.
+      const tags = (stat.lists || []).filter(
+        (l) => NOTABLE_LISTS.test(l) && !(info?.gameChanger && /game changer/i.test(l))
+      );
+      if (tags.length) lines.push(`Listed under ${tags.join(', ')}`);
+    }
+
+    if (info?.gameChanger) lines.push('⚠ Commander Game Changer');
+
+    const salt = statFor(name, edhrec.salt);
+    if (typeof salt === 'number') lines.push(`Salt ${salt.toFixed(2)} — top 100 saltiest`);
+
+    lines.push('Click to open on EDHREC');
+    return lines.join('\n');
+  }
+
   function buildBadge(name, info) {
     const el = document.createElement('a');
     el.className = 'edhrec-badge';
@@ -48,15 +97,12 @@
     if (!info || info.rank == null) {
       el.classList.add('edhrec-unranked');
       el.textContent = '—';
-      el.title = `${name}\nNot ranked on EDHREC`;
     } else {
       el.classList.add(tierFor(info.rank));
       el.textContent = `#${info.rank.toLocaleString()}`;
-      el.title = `${name}\nEDHREC rank ${info.rank.toLocaleString()}${
-        info.gameChanger ? '\n⚠ Commander Game Changer' : ''
-      }\nClick to open on EDHREC`;
       if (info.gameChanger) el.classList.add('edhrec-game-changer');
     }
+    el.title = tooltipFor(name, info);
 
     // Moxfield's tiles are themselves clickable; don't trigger their handler.
     el.addEventListener('click', (e) => e.stopPropagation());
@@ -73,6 +119,45 @@
    */
   const rankCache = new Map();
 
+  /**
+   * Load EDHREC data for whatever commander this deck has, once.
+   *
+   * Deliberately NOT awaited by scan(). EDHREC is an unofficial API and pure
+   * enrichment, so the rank badges must never wait on it — on a cold start the
+   * background has to boot and make two requests, which is slower than the
+   * badges should ever take to paint. Instead this fires in the background and
+   * repaints tooltips in place once the data lands.
+   *
+   * Keyed on the commander so switching decks in the same tab refetches. The
+   * key is recorded only on success, so a failed or slow attempt retries on the
+   * next pass rather than disabling enrichment for the rest of the page's life.
+   */
+  let edhrecKey = null;
+  let edhrecLoading = false;
+
+  function ensureEdhrec() {
+    const commanders = dom.findCommanderNames();
+    const key = commanders.join(' + ');
+    if (key === edhrecKey || edhrecLoading) return;
+    edhrecLoading = true;
+
+    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-edhrec', commanders }))
+      .then((res) => {
+        if (!res?.ok) return;
+        edhrec = { ...res, commander: commanders[0] || '' };
+        edhrecKey = key;
+        // Badges are already on the page; only their tooltips need to change.
+        for (const b of document.querySelectorAll('.edhrec-badge')) {
+          const name = b.dataset.cardName;
+          if (name) b.title = tooltipFor(name, rankCache.get(name));
+        }
+      })
+      .catch((err) => console.warn('[edhrec-overlay] edhrec lookup failed:', err.message))
+      .finally(() => {
+        edhrecLoading = false;
+      });
+  }
+
   let running = false;
   let rescanQueued = false;
 
@@ -83,6 +168,7 @@
     }
     running = true;
     try {
+      ensureEdhrec();
       // The adapter decides what is badgeable and how; this loop stays ignorant
       // of grids, rows and previews. Live targets come back every pass, so drop
       // the ones already showing the right card before we bother the network.

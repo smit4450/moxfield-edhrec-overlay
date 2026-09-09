@@ -21,7 +21,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://api.scryfall.com/*"
+    "https://api.scryfall.com/*",
+    "https://json.edhrec.com/*"
   ],
   "background": {
     "scripts": [

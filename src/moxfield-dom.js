@@ -121,6 +121,52 @@ globalThis.MoxfieldDom = (() => {
     return out;
   }
 
+  /**
+   * The deck's commander(s), for asking EDHREC about commander-specific stats.
+   *
+   * Two strategies, in order of freshness:
+   *
+   * 1. The "Commander (N)" group heading and the card rows or tiles beneath it.
+   *    Present in every view style, matched on visible text rather than on
+   *    Moxfield's hashed class names, and always current.
+   * 2. The server-rendered og:description - "A Commander deck featuring Bria,
+   *    Riptide Rogue by HarryThotter". Survives any Group By choice, but
+   *    Moxfield routes client-side and does not reliably rewrite meta tags, so
+   *    it can go stale after navigation. Hence the fallback position.
+   *
+   * Returns [] when the deck has no commander, which is correct rather than a
+   * failure: the overlay then just shows ranks.
+   */
+  function findCommanderNames(root = document) {
+    for (const el of root.querySelectorAll('a, li')) {
+      const text = clean(el.textContent);
+      // Guard on length so a wrapping container whose subtree merely starts
+      // with the heading cannot match, and so this stays cheap.
+      if (text.length > 40 || !/^Commander\s*\(\d+\)/.test(text)) continue;
+
+      const group = el.closest('ul') || el.closest('section, article, div');
+      if (!group) continue;
+
+      const names = [];
+      for (const link of group.querySelectorAll(ROW_LINK)) {
+        // Headings reuse the row-link class but carry no card id.
+        if (!link.id || !CARD_ID_SUFFIX.test(link.id)) continue;
+        const n = rowCardName(link);
+        if (n) names.push(n);
+      }
+      for (const img of group.querySelectorAll(CARD_IMAGE)) {
+        const n = clean(img.getAttribute('alt'));
+        if (isPlausibleName(n)) names.push(n);
+      }
+      if (names.length) return [...new Set(names)];
+    }
+
+    const desc = document.querySelector('meta[property="og:description"]')?.content || '';
+    const m = desc.match(/featuring\s+(.+?)\s+by\s/i);
+    if (!m) return [];
+    return [...new Set(m[1].split(/\s+and\s+/i).map(clean).filter(isPlausibleName))];
+  }
+
   /** Nearest ancestor-or-self whose element id ends in a card id. */
   function tileFor(el) {
     for (let n = el; n && n !== document.body; n = n.parentElement) {
@@ -295,6 +341,7 @@ globalThis.MoxfieldDom = (() => {
   return {
     DONE_ATTR,
     findTargets,
+    findCommanderNames,
     // Exposed separately so a hover can refresh just the preview, without
     // re-scanning every card on the page.
     findPreviewTargets: (root = document) => previewTargets(root),

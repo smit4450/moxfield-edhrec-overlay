@@ -38,7 +38,14 @@ delete manifest.browser_specific_settings; // Firefox-only, and Chromium rejects
 manifest.background = { service_worker: 'src/background.js' };
 writeFileSync(join(extDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
-const ctx = await chromium.launchPersistentContext(join(root, '.pw-profile-ext'), {
+// Wipe the profile every run. Chromium caches the unpacked extension inside the
+// profile, so a persistent one silently keeps serving an older build: a run
+// against stale code reported the background missing functions that were
+// plainly in the file, which is a deeply misleading failure to debug.
+const profileDir = join(root, '.pw-profile-ext');
+rmSync(profileDir, { recursive: true, force: true });
+
+const ctx = await chromium.launchPersistentContext(profileDir, {
   headless: false,
   viewport: { width: 1600, height: 1000 },
   args: [
@@ -58,6 +65,22 @@ page.on('console', (m) => {
   if (/edhrec|extension|Error/i.test(t)) pageLog.push(`[${m.type()}] ${t}`);
 });
 page.on('pageerror', (e) => pageLog.push(`[pageerror] ${e.message}`));
+
+// The background runs in its own worker context; its errors never reach the
+// page console, so subscribe separately or EDHREC failures are invisible.
+const swLog = [];
+const watchWorker = (w) => {
+  swLog.push(`[sw] started ${w.url()}`);
+  w.on('console', (m) => swLog.push(`[sw:${m.type()}] ${m.text()}`));
+};
+ctx.on('serviceworker', watchWorker);
+// Attach BEFORE navigating and wait for the worker to exist, or its early logs
+// (including the ones that explain an EDHREC failure) are lost to the race.
+{
+  const existing = ctx.serviceWorkers();
+  if (existing.length) existing.forEach(watchWorker);
+  else await ctx.waitForEvent('serviceworker', { timeout: 15000 }).catch(() => swLog.push('[sw] never started'));
+}
 
 let failures = 0;
 const check = (ok, label, detail = '') => {
@@ -93,6 +116,35 @@ try {
   check(state.badges > 0, 'badges auto-appear on a deck page', `(${state.badges} badges)`);
   check(state.withRank > 0, 'ranks resolved from Scryfall', `(${state.withRank} ranked, ${state.unranked} unranked)`);
   console.log('   sample:', state.sample.join(' | '));
+
+  // --- EDHREC enrichment ----------------------------------------------------
+  // NOTE: content scripts run in an isolated world, so MoxfieldDom is not
+  // reachable from page.evaluate here. Everything below is read from the shared
+  // DOM the extension actually produced, which is the better test anyway.
+  const edh = await page.evaluate(() => {
+    const titles = [...document.querySelectorAll('.edhrec-badge')].map((b) => b.title || '');
+    const desc = document.querySelector('meta[property="og:description"]')?.content || '';
+    return {
+      commanders: (desc.match(/featuring\s+(.+?)\s+by\s/i)?.[1] ?? '').trim() || null,
+      withSynergy: titles.filter((t) => /Synergy [+-]/.test(t)).length,
+      withInclusion: titles.filter((t) => /In [\d.]+% of those decks/.test(t)).length,
+      withList: titles.filter((t) => /Listed under/.test(t)).length,
+      withSalt: titles.filter((t) => /Salt \d/.test(t)).length,
+      total: titles.length,
+      richest: titles.slice().sort((a, b) => b.split('\n').length - a.split('\n').length)[0] || '',
+    };
+  });
+
+  console.log(`\ncommander detected: ${JSON.stringify(edh.commanders)}`);
+  if (edh.commanders?.length) {
+    check(edh.withSynergy > 0, 'synergy % in tooltips', `(${edh.withSynergy}/${edh.total})`);
+    check(edh.withInclusion > 0, 'inclusion % in tooltips', `(${edh.withInclusion}/${edh.total})`);
+    console.log(`   list tags ${edh.withList}, salt ${edh.withSalt}`);
+    console.log('\n   richest tooltip:');
+    for (const line of edh.richest.split('\n')) console.log('     ' + line);
+  } else {
+    console.log('   (deck has no commander; EDHREC enrichment correctly skipped)');
+  }
 
   // --- SPA navigation -------------------------------------------------------
   // The content script is injected once per document load. Moxfield routes
@@ -183,6 +235,11 @@ try {
   console.log('body:', await page.evaluate(() => document.body?.innerText.slice(0, 200).replace(/\s+/g, ' ')).catch(() => '?'));
 } finally {
   await ctx.close();
+}
+
+if (swLog.length) {
+  console.log('\nbackground console:');
+  for (const l of swLog.slice(0, 20)) console.log('  ', l);
 }
 
 if (pageLog.length) {
