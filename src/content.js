@@ -376,7 +376,7 @@
     if (!panel || !edhrec.lists?.length) return;
 
     const names = dom.deckCardNames();
-    const sig = `${names.size}|${edhrecKey}`;
+    const sig = `${names.size}|${edhrecKey}|${rankCache.size}`;
     if (sig === lastPanelSig) return;
     lastPanelSig = sig;
 
@@ -387,10 +387,16 @@
     const deck = new Set([...names].map(frontFace));
     const mismatch = stated && names.size < stated ? { seen: names.size, stated } : null;
 
+    // The Cuts view needs the deck's own cards with their ranks, which only
+    // this side has: rankCache is populated as badges are built.
+    const deckCards = [...names].map((n) => ({ name: n, ...(rankCache.get(n) || {}) }));
+
     panel.update({
       lists: edhrec.lists,
       stats: edhrec.stats,
+      salt: edhrec.salt,
       deck,
+      deckCards,
       commander: edhrec.commander,
       mismatch,
     });

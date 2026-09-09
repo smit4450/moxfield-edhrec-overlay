@@ -154,6 +154,32 @@ positive synergy one column to the left, and a cheap card should recede rather t
 compete for attention. The top band gets a tinted pill because two shades of red at
 different weights were not separable at a glance.
 
+### Cuts: the deck, worst first
+
+The drawer has two tabs. **Add** is the recommendations above; **Cuts** is your own deck
+sorted worst-first, with rank, synergy, salt and price on each row.
+
+This answers Moxfield's most-requested EDHREC feature —
+[sort cards by EDHREC rank][nolt706], **53 votes, open three years** — whose author
+explains the real goal: *"would help a lot in getting rid of cards that aren't useful
+when trying to trim your deck"*. The ask is phrased as sorting, but the goal is finding
+cuts, so rather than reorder Moxfield's React-managed list we give the same answer in a
+surface we own.
+
+Two sections, deliberately not merged:
+
+- **Lowest synergy** — played least often with your commander relative to everywhere else.
+- **Not in EDHREC's lists** — EDHREC does not list these for this commander at all.
+
+"Nobody plays this with your commander" is a different statement from "this has low
+synergy", and conflating them buries every pet card in with the genuine duds.
+
+The header also totals **deck salt**, which is
+[the second-most-requested EDHREC feature][nolt304] (43 votes): *"a salt sum calculator
+with a list of the salty cards in a given deck"*. Only EDHREC's global top-100 saltiest
+can contribute, and the label says so — a total that silently ignored most of the card
+pool would be worse than showing none.
+
 ### Pricing the printing you would actually buy
 
 The obvious implementation is wrong, and quietly so. Asking Scryfall for the id EDHREC
@@ -394,6 +420,10 @@ same-host `/cards/<slug>` path with no image extension.
       zero-network rendering (`oracle_id → edhrec_rank` is only a few hundred KB)
 - [x] Per-commander synergy, inclusion, list tags and salt via `json.edhrec.com`
 - [x] Show EDHREC recommendations not yet in the deck
+- [x] Cuts tab: the deck sorted worst-first, plus a deck salt total
+- [ ] Compare against EDHREC's average decklist ([31 votes](https://moxfield.nolt.io/466))
+- [ ] Combos via Commander Spellbook — `find-my-combos` returns combos in the deck and
+      ones you are a single card away from
 - [ ] Options page: tier thresholds, badge position, toggle EDHREC enrichment off
 
 ## A note on scope and etiquette
@@ -419,6 +449,7 @@ Not produced by or endorsed by Wizards of the Coast, Moxfield, EDHREC, or Scryfa
 [linker]: https://addons.mozilla.org/en-US/firefox/addon/moxfield-to-scryfall-linker/
 [lens]: https://fccmtgdev.github.io/collectionlens/
 [nolt706]: https://moxfield.nolt.io/706
+[nolt304]: https://moxfield.nolt.io/304
 [cards]: https://scryfall.com/docs/api/cards
 [limits]: https://scryfall.com/docs/api/rate-limits
 [bulk]: https://scryfall.com/docs/api/bulk-data

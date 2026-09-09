@@ -537,3 +537,89 @@
 .edhrec-panel-price.is-unknown {
   color: #5b6779;
 }
+
+/* Tabs: "Add" (recommendations) and "Cuts" (the deck, worst first). */
+.edhrec-panel-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 10px 0 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: #171f2b;
+}
+
+.edhrec-panel-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #93a1b5;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.edhrec-panel-tab.is-on {
+  background: #263243;
+  color: #fff;
+}
+
+.edhrec-panel-tabcount {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.09);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Deck salt total. Only EDHREC's top-100 saltiest can contribute, and the
+   label says so: a total that silently ignored most of the card pool would be
+   worse than showing none. */
+.edhrec-panel-salt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #33191d;
+}
+
+.edhrec-panel-saltnum {
+  font-size: 19px;
+  font-weight: 700;
+  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+}
+
+.edhrec-panel-saltlbl {
+  font-size: 11px;
+  color: #d3a3a3;
+  line-height: 1.3;
+}
+
+/* Rank sits alongside synergy in the cuts view. */
+.edhrec-panel-rank {
+  color: #6f7d91;
+  font-variant-numeric: tabular-nums;
+}
+
+.edhrec-panel-chip {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #1e2937;
+  color: #b9c6d8;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.edhrec-panel-chip.is-salt {
+  background: #3a1d1d;
+  color: #fca5a5;
+}

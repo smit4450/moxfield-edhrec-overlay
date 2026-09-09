@@ -247,6 +247,45 @@ try {
       'prices load for visible rows',
       `(${money.withPrice}/${money.cells}: ${money.sample.join(' ')})`
     );
+    // --- Cuts tab -----------------------------------------------------------
+    await page.getByRole('button', { name: /^Cuts/ }).first().click();
+    await page.waitForTimeout(2500);
+    const cuts = await page.evaluate(() => {
+      const sections = [...document.querySelectorAll('.edhrec-panel-section')].map((s) => ({
+        title: s.querySelector('.edhrec-panel-title')?.textContent,
+        rows: [...s.querySelectorAll('.edhrec-panel-row')].map((r) => ({
+          name: r.querySelector('.edhrec-panel-name')?.textContent,
+          syn: r.querySelector('.edhrec-panel-syn')?.textContent,
+        })),
+      }));
+      const deck = new Set(
+        [...document.querySelectorAll('.edhrec-badge')]
+          .map((b) => (b.dataset.cardName || '').split('//')[0].trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const listed = sections.flatMap((s) => s.rows.map((r) => r.name || ''));
+      return {
+        heading: document.querySelector('.edhrec-panel-h1')?.textContent,
+        salt: document.querySelector('.edhrec-panel-salt')?.innerText.replace(/\n/g, ' ') || null,
+        sections: sections.map((s) => s.title),
+        synOrder: (sections.find((s) => s.title === 'Lowest synergy')?.rows || [])
+          .map((r) => parseFloat(r.syn))
+          .filter((n) => !Number.isNaN(n)),
+        // Every cut candidate must actually BE in the deck - the mirror of the
+        // Add tab's invariant.
+        notInDeck: listed.filter((n) => n && !deck.has(n.split('//')[0].trim().toLowerCase())),
+      };
+    });
+    check(cuts.heading === 'Trim this deck', 'cuts tab switches', `(${cuts.heading})`);
+    check(
+      cuts.notInDeck.length === 0,
+      'every cut candidate is actually in the deck',
+      cuts.notInDeck.length ? `(${cuts.notInDeck.slice(0, 3).join(', ')})` : ''
+    );
+    const ascending = cuts.synOrder.every((v, i, a) => i === 0 || a[i - 1] <= v);
+    check(ascending && cuts.synOrder.length > 1, 'cuts sorted worst-synergy first', `(${cuts.synOrder.slice(0, 4).join(', ')})`);
+    check(Boolean(cuts.salt), 'deck salt total shown', cuts.salt ? `(${cuts.salt.slice(0, 44)})` : '');
+
     await launcher.click(); // close again so it cannot occlude later checks
     await page.waitForTimeout(400);
   }

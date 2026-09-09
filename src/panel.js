@@ -26,7 +26,18 @@ globalThis.EdhrecPanel = (() => {
 
   const PREVIEW_ROWS = 8; // rows shown before a bulk section is expanded
 
-  let state = { lists: [], stats: {}, deck: new Set(), commander: '', mismatch: null };
+  let state = {
+    lists: [],
+    stats: {},
+    salt: {},
+    deck: new Set(),
+    deckCards: [],
+    commander: '',
+    mismatch: null,
+  };
+
+  /** "add" = recommendations not in the deck; "cuts" = the deck, worst first. */
+  let tab = 'add';
 
   /**
    * Prices, fetched lazily for whatever is on screen rather than for all ~216
@@ -77,6 +88,58 @@ globalThis.EdhrecPanel = (() => {
   /** The EDHREC cardview id is a Scryfall card id, so images need no API call. */
   const imageFor = (id) =>
     id ? `https://cards.scryfall.io/normal/front/${id[0]}/${id[1]}/${id}.jpg` : null;
+
+  /**
+   * The deck's own cards, worst first.
+   *
+   * This is the shape of Moxfield's most-requested EDHREC feature (53 votes,
+   * open three years): "sort cards by EDHREC rank ... would help a lot in
+   * getting rid of cards that aren't useful when trying to trim your deck".
+   * The ask is phrased as sorting, but the goal is finding cuts - so rather
+   * than reorder Moxfield's React-managed list, the same answer is given in a
+   * surface we own.
+   *
+   * Cards EDHREC does not list for this commander are separated out rather
+   * than sorted to the bottom: "nobody plays this with your commander" is a
+   * different statement from "this has low synergy", and conflating them would
+   * bury every pet card in with the genuine duds.
+   */
+  function cutCandidates() {
+    const rated = [];
+    const unlisted = [];
+    for (const card of state.deckCards) {
+      const stat = state.stats[card.name.toLowerCase()] ?? state.stats[norm(card.name)];
+      const merged = { ...card, ...(stat || {}) };
+      if (stat && typeof stat.synergy === 'number') rated.push(merged);
+      else unlisted.push(merged);
+    }
+    rated.sort((a, b) => a.synergy - b.synergy);
+    unlisted.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0));
+    return { rated, unlisted };
+  }
+
+  /**
+   * Deck salt, from EDHREC's global top-100 saltiest.
+   *
+   * Moxfield's second-most-requested EDHREC feature (43 votes) asks for exactly
+   * this: "a salt sum calculator with a list of the salty cards in a given
+   * deck". Only top-100 cards can contribute, which is stated in the UI rather
+   * than quietly implied - a total that silently ignores most of the card pool
+   * would be worse than no total.
+   */
+  function saltSummary() {
+    const hits = [];
+    let total = 0;
+    for (const card of state.deckCards) {
+      const v = state.salt[card.name.toLowerCase()] ?? state.salt[norm(card.name)];
+      if (typeof v === 'number') {
+        hits.push({ ...card, salt: v });
+        total += v;
+      }
+    }
+    hits.sort((a, b) => b.salt - a.salt);
+    return { hits, total };
+  }
 
   /** Ask the background for any on-screen card whose price we do not have yet. */
   function ensurePrices(cards) {
@@ -157,6 +220,10 @@ globalThis.EdhrecPanel = (() => {
       fill.style.width = `${Math.max(0, Math.min(1, card.inclusion)) * 100}%`;
       bar.append(fill);
       meta.append(bar);
+    }
+    if (card.rank != null) meta.append(el('span', 'edhrec-panel-rank', `#${card.rank.toLocaleString()}`));
+    if (typeof card.salt === 'number') {
+      meta.append(el('span', 'edhrec-panel-chip is-salt', `Salt ${card.salt.toFixed(2)}`));
     }
     main.append(meta);
     row.append(main);
@@ -288,53 +355,23 @@ globalThis.EdhrecPanel = (() => {
     return root;
   }
 
-  function render() {
-    if (!state.lists.length) {
-      // EDHREC is the one fragile dependency; with no data there is nothing to
-      // offer, so the launcher should not appear at all.
-      root?.remove();
-      root = null;
-      return;
-    }
+  function tabButton(key, label, count) {
+    const b = el('button', `edhrec-panel-tab${tab === key ? ' is-on' : ''}`, label);
+    if (count != null) b.append(el('span', 'edhrec-panel-tabcount', String(count)));
+    b.addEventListener('click', () => {
+      tab = key;
+      render();
+    });
+    return b;
+  }
 
-    ensureRoot();
-    const sections = missingByList();
-    const total = new Set(sections.flatMap((s) => s.cards.map((c) => c.name))).size;
-
-    const launcher = root.querySelector('.edhrec-panel-launcher');
-    launcher.textContent = open ? '✕' : `${total} recs`;
-    launcher.title = open ? 'Close recommendations' : `${total} EDHREC cards not in this deck`;
-
-    root.classList.toggle('is-open', open);
-    const body = root.querySelector('.edhrec-panel-body');
-    body.replaceChildren();
-    if (!open) return;
-
+  function renderAdd(body, sections, total) {
     const shownNow = sections.reduce(
-      (n, s) => n + (s.curated || expanded.has(s.header) ? s.cards.length : 0),
+      (n, sec) => n + (sec.curated || expanded.has(sec.header) ? sec.cards.length : 0),
       0
     );
-
-    const head = el('div', 'edhrec-panel-topbar');
-    head.append(el('div', 'edhrec-panel-h1', 'Not in this deck'));
-    if (state.commander) head.append(el('div', 'edhrec-panel-sub', `EDHREC · ${state.commander}`));
-    // The launcher counts everything missing, but only the curated lists are
-    // open. Say so, or the panel looks like it has lost 200 cards.
     if (shownNow < total) {
-      head.append(el('div', 'edhrec-panel-sub', `Showing ${shownNow} of ${total} — type lists collapsed`));
-    }
-    body.append(head);
-
-    if (state.mismatch) {
-      // Better to say the list may be wrong than to quietly recommend cards the
-      // deck already contains.
-      body.append(
-        el(
-          'div',
-          'edhrec-panel-warn',
-          `Only ${state.mismatch.seen} of ${state.mismatch.stated} cards are visible — a filter may be active, so some of these may already be in the deck.`
-        )
-      );
+      body.append(el('div', 'edhrec-panel-sub', `Showing ${shownNow} of ${total} — type lists collapsed`));
     }
 
     const sort = el('div', 'edhrec-panel-sort');
@@ -352,14 +389,104 @@ globalThis.EdhrecPanel = (() => {
     }
     body.append(sort);
 
-    for (const s of sections) body.append(buildSection(s));
-
-    // Only the rows actually rendered need prices.
-    ensurePrices(sections.filter((s) => s.curated || expanded.has(s.header)).flatMap((s) => s.cards));
+    for (const sec of sections) body.append(buildSection(sec));
+    ensurePrices(sections.filter((sec) => sec.curated || expanded.has(sec.header)).flatMap((sec) => sec.cards));
 
     const foot = el('div', 'edhrec-panel-foot');
     body.append(foot);
     refreshFooter();
+  }
+
+  function renderCuts(body) {
+    const { rated, unlisted } = cutCandidates();
+    const { hits, total } = saltSummary();
+
+    if (hits.length) {
+      const box = el('div', 'edhrec-panel-salt');
+      box.append(el('span', 'edhrec-panel-saltnum', total.toFixed(2)));
+      box.append(
+        el(
+          'span',
+          'edhrec-panel-saltlbl',
+          `total salt across ${hits.length} card${hits.length === 1 ? '' : 's'} — EDHREC's 100 saltiest only`
+        )
+      );
+      body.append(box);
+    }
+
+    const sec = (title, cards, note) => {
+      if (!cards.length) return;
+      const wrap = el('div', 'edhrec-panel-section');
+      const head = el('div', 'edhrec-panel-head');
+      head.append(el('span', 'edhrec-panel-title', title));
+      head.append(el('span', 'edhrec-panel-count', String(cards.length)));
+      wrap.append(head);
+      if (note) wrap.append(el('div', 'edhrec-panel-sub', note));
+      for (const c of cards) wrap.append(buildRow(c));
+      body.append(wrap);
+    };
+
+    const salty = new Map(hits.map((h) => [h.name, h.salt]));
+    const withSalt = (c) => (salty.has(c.name) ? { ...c, salt: salty.get(c.name) } : c);
+
+    sec('Lowest synergy', rated.slice(0, 15).map(withSalt), 'Played least often with your commander relative to everywhere else.');
+    sec(
+      'Not in EDHREC’s lists',
+      unlisted.slice(0, 15).map(withSalt),
+      'EDHREC does not list these for this commander at all. Often the real cuts — sometimes the pet cards.'
+    );
+
+    ensurePrices([...rated.slice(0, 15), ...unlisted.slice(0, 15)]);
+
+    const foot = el('div', 'edhrec-panel-foot');
+    body.append(foot);
+    refreshFooter();
+  }
+
+  function render() {
+    if (!state.lists.length) {
+      // EDHREC is the one fragile dependency; with no data there is nothing to
+      // offer, so the launcher should not appear at all.
+      root?.remove();
+      root = null;
+      return;
+    }
+
+    ensureRoot();
+    const sections = missingByList();
+    const total = new Set(sections.flatMap((sec) => sec.cards.map((c) => c.name))).size;
+
+    const launcher = root.querySelector('.edhrec-panel-launcher');
+    launcher.textContent = open ? '✕' : `${total} recs`;
+    launcher.title = open ? 'Close recommendations' : `${total} EDHREC cards not in this deck`;
+
+    root.classList.toggle('is-open', open);
+    const body = root.querySelector('.edhrec-panel-body');
+    body.replaceChildren();
+    if (!open) return;
+
+    const head = el('div', 'edhrec-panel-topbar');
+    head.append(el('div', 'edhrec-panel-h1', tab === 'add' ? 'Not in this deck' : 'Trim this deck'));
+    if (state.commander) head.append(el('div', 'edhrec-panel-sub', `EDHREC · ${state.commander}`));
+    body.append(head);
+
+    const tabs = el('div', 'edhrec-panel-tabs');
+    tabs.append(tabButton('add', 'Add', total));
+    tabs.append(tabButton('cuts', 'Cuts', state.deckCards.length || null));
+    body.append(tabs);
+
+    if (state.mismatch) {
+      body.append(
+        el(
+          'div',
+          'edhrec-panel-warn',
+          `Only ${state.mismatch.seen} of ${state.mismatch.stated} cards are visible — a filter may be active, so this list may be wrong.`
+        )
+      );
+    }
+
+    if (tab === 'add') renderAdd(body, sections, total);
+    else renderCuts(body);
   }
 
   /** Called by content.js whenever the commander data or deck contents change. */
