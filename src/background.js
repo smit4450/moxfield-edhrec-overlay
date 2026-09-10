@@ -24,6 +24,10 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * Bumped whenever previously-cached values could be wrong, so entries written
  * by an older build are ignored instead of served.
  *
+ * v4: the value gained `name`, the card's real Scryfall name. Moxfield shows
+ * FLAVOR names, and every third-party service keys on real ones, so callers
+ * need the mapping to compare deck contents against anything.
+ *
  * v3: flavor-named cards (Universes Beyond reskins) were negative-cached as
  * unranked, so those entries have to be retired or they would keep reporting
  * "unranked" for a week after the fix.
@@ -33,7 +37,7 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * reporting "unranked" for the full 7-day TTL after the fix shipped, making the
  * fix look like it had not worked.
  */
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_PREFIX = `rank:${CACHE_VERSION}:`;
 
 /**
@@ -156,6 +160,12 @@ function indexCards(cards) {
       rank: card.edhrec_rank ?? null,
       gameChanger: card.game_changer === true,
       scryfallUri: card.scryfall_uri ?? null,
+      // The card's REAL name. Moxfield displays flavor names for reskins
+      // ("Valley Farmstead" for Yavimaya, Cradle of Growth), and EDHREC,
+      // Commander Spellbook and the average decklist all key on the real one.
+      // Without this, a reskinned card you own matches nothing and every view
+      // treats it as absent.
+      name: card.name,
     },
   }));
 
@@ -220,6 +230,9 @@ async function resolveBySearch(name) {
       rank: card.edhrec_rank ?? null,
       gameChanger: card.game_changer === true,
       scryfallUri: card.scryfall_uri ?? null,
+      // This path exists precisely because the requested name was a flavor
+      // name, so returning the real one is the whole point.
+      name: card.name,
     };
   } catch (err) {
     console.warn('[edhrec-overlay] name fallback failed:', name, err.message);

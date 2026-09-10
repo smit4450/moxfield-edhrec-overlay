@@ -253,10 +253,19 @@ try {
       'nothing recommended is already in the deck',
       panel.alreadyInDeck.length ? `(${panel.alreadyInDeck.slice(0, 3).join(', ')})` : ''
     );
+    // Assert the ORDERING, not which section happens to be first. Any given
+    // curated section can legitimately be empty - and vanish - once the deck
+    // already runs everything in it, which is exactly what the Add tab is for.
+    // Pinning "High Synergy Cards is first" made this fail as a side effect of
+    // the deck improving.
+    const CURATED = ['High Synergy Cards', 'Top Cards', 'Game Changers', 'New Cards'];
+    const kinds = panel.sections.map((t) => (CURATED.includes(t) ? 'curated' : 'bulk'));
+    const firstBulk = kinds.indexOf('bulk');
+    const lastCurated = kinds.lastIndexOf('curated');
     check(
-      panel.sections[0] === 'High Synergy Cards',
-      'curated sections lead the list',
-      `(first: ${panel.sections[0]})`
+      kinds.includes('curated') && (firstBulk === -1 || firstBulk > lastCurated),
+      'curated sections come before the bulk type lists',
+      `(${panel.sections.slice(0, 4).join(' / ')})`
     );
 
     // Prices arrive on a second round trip after the rows render.

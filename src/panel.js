@@ -27,6 +27,7 @@ globalThis.EdhrecPanel = (() => {
   const PREVIEW_ROWS = 8; // rows shown before a bulk section is expanded
 
   let state = {
+    deckId: null,
     lists: [],
     stats: {},
     salt: {},
@@ -94,6 +95,15 @@ globalThis.EdhrecPanel = (() => {
   }
   const norm = (s) => s.split('//')[0].trim().toLowerCase();
 
+  /**
+   * The name to MATCH on, which is not always the name to show.
+   *
+   * Moxfield displays flavor names for reskins; EDHREC, Commander Spellbook
+   * and the average decklist all key on real ones. content.js supplies both,
+   * so rows read as the page does while every comparison uses the real name.
+   */
+  const canonOf = (card) => norm(card.canonical || card.name);
+
   /** The EDHREC cardview id is a Scryfall card id, so images need no API call. */
   const imageFor = (id) =>
     id ? `https://cards.scryfall.io/normal/front/${id[0]}/${id[1]}/${id}.jpg` : null;
@@ -118,7 +128,7 @@ globalThis.EdhrecPanel = (() => {
     const unlisted = [];
     // You cannot cut your commander.
     for (const card of withoutCommanders(state.deckCards)) {
-      const stat = state.stats[card.name.toLowerCase()] ?? state.stats[norm(card.name)];
+      const stat = state.stats[canonOf(card)] ?? state.stats[(card.canonical || card.name).toLowerCase()];
       const merged = { ...card, ...(stat || {}) };
       if (stat && typeof stat.synergy === 'number') rated.push(merged);
       else unlisted.push(merged);
@@ -141,7 +151,7 @@ globalThis.EdhrecPanel = (() => {
     const hits = [];
     let total = 0;
     for (const card of state.deckCards) {
-      const v = state.salt[card.name.toLowerCase()] ?? state.salt[norm(card.name)];
+      const v = state.salt[canonOf(card)] ?? state.salt[(card.canonical || card.name).toLowerCase()];
       if (typeof v === 'number') {
         hits.push({ ...card, salt: v });
         total += v;
@@ -167,18 +177,27 @@ globalThis.EdhrecPanel = (() => {
 
   const withoutCommanders = (cards) => {
     const cmd = commanderSet();
-    return cards.filter((c) => !cmd.has(norm(c.name)));
+    return cards.filter((c) => !cmd.has(canonOf(c)) && !cmd.has(norm(c.name)));
   };
 
-  /** Deck minus the commanders, which Commander Spellbook wants passed separately. */
+  /**
+   * Deck minus the commanders, which Commander Spellbook wants separately.
+   *
+   * Canonical names, not display names. Spellbook's card database does not
+   * know flavor names at all - a lookup for "Valley Farmstead" returns no
+   * match - so sending them makes a card you own invisible, and every combo
+   * needing it comes back reported as one card away.
+   */
   function mainDeckNames() {
-    return withoutCommanders(state.deckCards).map((c) => c.name);
+    return withoutCommanders(state.deckCards).map((c) => c.canonical || c.name);
   }
 
   /** One request each, on first use of their tab. */
   function ensureExtras() {
     if (extraPending || !state.deckCards.length) return;
-    const key = `${state.commander}|${state.deckCards.length}`;
+    // Keyed on the deck itself: commander plus card count collides between two
+    // different decks for the same commander with the same number of cards.
+    const key = `${state.deckId}|${state.commander}|${state.deckCards.length}`;
 
     if (tab === 'combos' && combosKey !== key) {
       extraPending = true;
@@ -592,7 +611,7 @@ globalThis.EdhrecPanel = (() => {
     const missing = average.filter((n) => !state.deck.has(norm(n)));
     // EDHREC keeps the commander out of the average's card list, so leaving it
     // in here would always report it as a card the average does not run.
-    const yoursOnly = withoutCommanders(state.deckCards).filter((c) => !avgSet.has(norm(c.name)));
+    const yoursOnly = withoutCommanders(state.deckCards).filter((c) => !avgSet.has(canonOf(c)));
 
     const stat = el('div', 'edhrec-panel-avgstat');
     stat.append(el('span', 'edhrec-panel-saltnum', String(shared.length)));
@@ -689,7 +708,21 @@ globalThis.EdhrecPanel = (() => {
 
   /** Called by content.js whenever the commander data or deck contents change. */
   function update(next) {
+    const previousDeck = state.deckId;
     state = { ...state, ...next };
+
+    // Moving to another deck invalidates everything held per-deck. Clearing it
+    // matters as much as refetching: a stale value would otherwise render the
+    // moment you open a tab, showing the previous deck's answer until the new
+    // request lands - and if the cache key happened to collide, indefinitely.
+    if (next.deckId && previousDeck && next.deckId !== previousDeck) {
+      combos = null;
+      average = null;
+      combosKey = null;
+      averageKey = null;
+      picked.clear();
+      expanded.clear();
+    }
     render();
   }
 

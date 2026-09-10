@@ -47,6 +47,21 @@
   const frontFace = (n) => n.split('//')[0].trim().toLowerCase();
 
   /**
+   * Moxfield's display name -> the card's real Scryfall name.
+   *
+   * Reskins are displayed under a FLAVOR name ("Valley Farmstead"), while
+   * EDHREC, Commander Spellbook and the average decklist all key on the real
+   * one ("Yavimaya, Cradle of Growth"). Comparing display names against those
+   * services makes a card you own look absent: it stays in the Add list, drops
+   * into "not in EDHREC's lists" under Cuts, reads as a difference from the
+   * average, and - the visible symptom - gets reported as a combo piece you
+   * still need.
+   *
+   * The rank lookup already resolves the real name, so this is free.
+   */
+  const canonicalOf = (displayName) => rankCache.get(displayName)?.name || displayName;
+
+  /**
    * Rank info for a card, preferring the COMMANDER rank when it is one.
    *
    * Scryfall's edhrec_rank answers "how often is this played in any deck".
@@ -58,7 +73,7 @@
   function infoFor(name) {
     const base = rankCache.get(name);
     const cmd = edhrec.commanderCard;
-    if (cmd && frontFace(name) === frontFace(cmd.name)) {
+    if (cmd && frontFace(canonicalOf(name)) === frontFace(cmd.name)) {
       return { ...(base || {}), rank: cmd.rank, isCommander: true, commanderDecks: cmd.numDecks };
     }
     return base;
@@ -90,7 +105,7 @@
         sub: 'running it as commander',
       });
     }
-    const stat = statFor(name, edhrec.stats);
+    const stat = statFor(canonicalOf(name), edhrec.stats);
 
     if (stat && typeof stat.synergy === 'number') {
       // Synergy is inclusion-with-this-commander minus inclusion-everywhere, so
@@ -123,7 +138,7 @@
     if (info?.gameChanger && !moxfieldFlagsGameChanger) {
       model.chips.push({ text: 'Game Changer', kind: 'gc' });
     }
-    const salt = statFor(name, edhrec.salt);
+    const salt = statFor(canonicalOf(name), edhrec.salt);
     if (typeof salt === 'number') {
       model.chips.push({ text: `Salt ${salt.toFixed(2)}`, kind: 'salt' });
     }
@@ -417,7 +432,11 @@
     if (!panel || !edhrec.lists?.length) return;
 
     const names = dom.deckCardNames();
-    const sig = `${names.size}|${edhrecKey}|${rankCache.size}`;
+    // The deck's own identity, so switching decks cannot be mistaken for the
+    // same deck. Commander plus card count is not enough: two different decks
+    // for the same commander with the same size collide.
+    const deckId = location.pathname;
+    const sig = `${deckId}|${names.size}|${edhrecKey}|${rankCache.size}`;
     if (sig === lastPanelSig) return;
     lastPanelSig = sig;
 
@@ -425,14 +444,21 @@
     // search is active and "not in this deck" would be wrong. Say so rather
     // than quietly recommending cards the deck already runs.
     const stated = dom.statedDeckSize();
-    const deck = new Set([...names].map(frontFace));
+    // Canonical names, because everything the panel compares against uses them.
+    const deck = new Set([...names].map((n) => frontFace(canonicalOf(n))));
     const mismatch = stated && names.size < stated ? { seen: names.size, stated } : null;
 
     // The Cuts view needs the deck's own cards with their ranks, which only
-    // this side has: rankCache is populated as badges are built.
-    const deckCards = [...names].map((n) => ({ name: n, ...(rankCache.get(n) || {}) }));
+    // this side has: rankCache is populated as badges are built. `name` stays
+    // the display name so rows read as the page does; `canonical` is what all
+    // the matching uses.
+    const deckCards = [...names].map((n) => {
+      const info = rankCache.get(n) || {};
+      return { ...info, name: n, canonical: info.name || n };
+    });
 
     panel.update({
+      deckId,
       lists: edhrec.lists,
       stats: edhrec.stats,
       salt: edhrec.salt,

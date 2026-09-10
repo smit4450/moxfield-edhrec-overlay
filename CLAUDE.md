@@ -12,6 +12,7 @@ stops applying.
 | | |
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
+| `npm run test:panel` | Panel unit tests with a stubbed messenger. Deterministic, headless, no network. |
 | `npm run verify:autorun` | Loads the real built extension in a browser and checks 30 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
@@ -53,6 +54,11 @@ Two rules, both learned the hard way.
 **Run headed.** Cloudflare blocks headless outright — you get *"Sorry, you have been
 blocked"*, not the page. This also explains any "Moxfield never finishes loading"
 symptom in automation; it is a block, not slowness.
+
+**Do not assert on values that depend on deck contents.** `verify:autorun` asserted
+that "High Synergy Cards" was the first Add section; it failed once the deck already ran
+everything in that section, so the section vanished. Assert the *property* — curated
+sections precede bulk ones — not the incidental value.
 
 **Validate every regression test by reverting the fix and confirming it fails.** Two
 tests in this repo passed against the very bug they were written for:
@@ -118,6 +124,22 @@ shipped green.
   by name, Scryfall's default printing can be an MTGO-only set. Batch by name, then fall
   back to a print search ordered by price.
 
+### Card names, everywhere
+
+**Moxfield displays FLAVOR names; every third-party service keys on real ones.**
+"Power Sneakers" is Lightning Greaves, "Valley Farmstead" is Yavimaya, Cradle of Growth
+— 476 cards on Scryfall carry one, including staples like Dark Ritual.
+
+Comparing display names against those services makes a card you own look absent, in
+every view at once: it stays in Add, drops into "not in EDHREC's lists" under Cuts,
+reads as a difference from the average, loses its synergy tooltip, and — the visible
+symptom — gets reported as a combo piece you still need. Spellbook's card database does
+not know flavor names at all; a lookup returns no match.
+
+So the rank lookup returns the card's real `name`, `content.js` exposes `canonicalOf()`,
+and **everything that compares or is sent outbound uses the canonical name**. Display
+names are for display only: badge text, badge links, panel row labels.
+
 ### EDHREC (`json.edhrec.com`)
 
 Unofficial and undocumented — the project's one fragile dependency. No key, no
@@ -134,6 +156,20 @@ rank-only. Never `await` it on the badge-render path.
 `POST /find-my-combos/` takes `{commanders:[{card}], main:[{card}]}` — bare strings are
 rejected. Only combos missing exactly one card are shown. Recompute `missing` locally
 against the deck actually sent rather than trusting the reply.
+
+### Deck switching
+
+Moxfield routes client-side, so moving between decks does **not** reload the content
+script. Anything held per-deck has to be invalidated by hand, and the tab that is *not*
+currently open is where that goes wrong — it renders on next open, from whatever it was
+last given.
+
+- Key per-deck caches on the deck's own path. Commander plus card count collides
+  between two different decks for the same commander with the same size.
+- **Clear** stale data as well as refetching it. Refetch alone leaves a window where the
+  previous deck's answer is on screen, and `tools/test-panel-deckswitch.mjs` deliberately
+  slows its stub to keep that window open — an instant stub hides the bug behind its own
+  replacement.
 
 ### Caching
 

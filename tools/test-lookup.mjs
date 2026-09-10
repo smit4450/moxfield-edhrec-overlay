@@ -67,8 +67,8 @@ for (const v of ['v1', 'v2', 'v3']) {
   });
 }
 
-const { lookup, edhrecForDeck } = await (0, eval)(
-  `(async () => { ${src}\n; return { lookup, edhrecForDeck }; })()`
+const { lookup, edhrecForDeck, lookupCombos } = await (0, eval)(
+  `(async () => { ${src}\n; return { lookup, edhrecForDeck, lookupCombos }; })()`
 );
 
 // `ranked: false` means we expect a resolved card with no EDHREC rank, or no
@@ -134,6 +134,39 @@ if (!shapeOk) failures++;
 console.log(
   `${shapeOk ? '  ok  ' : ' FAIL '} stale-shaped cache is refetched, not served  ` +
     `(${Object.keys(edh.stats).length} stats, ${edh.lists.length} lists)`
+);
+
+// --- reskinned cards must not be reported as cards you need ----------------
+// Moxfield displays flavor names ("Power Sneakers" for Lightning Greaves), and
+// Commander Spellbook's card database does not know them at all - a lookup for
+// a flavor name returns no match. Sending display names therefore makes a card
+// you own invisible, and every combo needing it comes back as "one card away":
+// the extension tells you to add a card already in your deck. 476 cards on
+// Scryfall carry a flavor name, Lightning Greaves and Dark Ritual among them.
+globalThis.fetch = uaFetch;
+
+const reskin = await lookup(['Power Sneakers']);
+const canonical = reskin['Power Sneakers']?.name;
+const mapped = canonical === 'Lightning Greaves';
+if (!mapped) failures++;
+console.log(
+  `${mapped ? '  ok  ' : ' FAIL '} flavor name maps to its real card  ` +
+    `(Power Sneakers -> ${JSON.stringify(canonical)})`
+);
+
+// Crackdown Construct + Lightning Greaves is a two-card combo, so a deck with
+// both must report it as owned rather than asking for the second piece.
+const combos = await lookupCombos(
+  ['Bria, Riptide Rogue'],
+  ['Crackdown Construct', canonical || 'Lightning Greaves', 'Sol Ring']
+);
+const owned = combos.included.some((v) => v.cards.includes('Lightning Greaves'));
+const wrongAsk = combos.almost.filter((v) => v.missing.includes('Lightning Greaves')).length;
+const comboOk = owned && wrongAsk === 0;
+if (!comboOk) failures++;
+console.log(
+  `${comboOk ? '  ok  ' : ' FAIL '} a combo piece you own is not offered back  ` +
+    `(owned ${owned}, wrongly asked ${wrongAsk})`
 );
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} check(s) failed`);
