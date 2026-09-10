@@ -166,6 +166,9 @@ when trying to trim your deck"*. The ask is phrased as sorting, but the goal is 
 cuts, so rather than reorder Moxfield's React-managed list we give the same answer in a
 surface we own.
 
+The commander is excluded — you cannot cut it — and so is the second commander of a
+partner or background pairing.
+
 Two sections, deliberately not merged:
 
 - **Lowest synergy** — played least often with your commander relative to everywhere else.
@@ -216,6 +219,10 @@ EDHREC's average decklist, and shows both directions:
 
 The second direction is the interesting one, and the reason this is not just the Add tab
 again: it is what makes the list yours rather than everyone's.
+
+The commander is excluded here too. EDHREC keeps it out of the average's card list
+entirely, so leaving it in ours would report it forever as a card the average does not
+run.
 
 ### Pricing the printing you would actually buy
 

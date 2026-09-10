@@ -173,7 +173,9 @@
     Promise.resolve(api.runtime.sendMessage({ type: 'lookup-edhrec', commanders }))
       .then((res) => {
         if (!res?.ok) return;
-        edhrec = { ...res, commander: commanders[0] || '' };
+        // Keep the whole list, not just the first: partner and background
+        // pairings have two, and the panel must exclude both.
+        edhrec = { ...res, commander: commanders[0] || '', commanders };
         edhrecKey = key;
         lastPanelSig = ''; // new commander: the whole recommendation set changed
         syncPanel();
@@ -398,6 +400,7 @@
       deck,
       deckCards,
       commander: edhrec.commander,
+      commanders: edhrec.commanders || [],
       mismatch,
     });
   }

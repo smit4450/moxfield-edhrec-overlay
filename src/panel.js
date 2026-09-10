@@ -33,6 +33,7 @@ globalThis.EdhrecPanel = (() => {
     deck: new Set(),
     deckCards: [],
     commander: '',
+    commanders: [],
     mismatch: null,
   };
 
@@ -115,7 +116,8 @@ globalThis.EdhrecPanel = (() => {
   function cutCandidates() {
     const rated = [];
     const unlisted = [];
-    for (const card of state.deckCards) {
+    // You cannot cut your commander.
+    for (const card of withoutCommanders(state.deckCards)) {
       const stat = state.stats[card.name.toLowerCase()] ?? state.stats[norm(card.name)];
       const merged = { ...card, ...(stat || {}) };
       if (stat && typeof stat.synergy === 'number') rated.push(merged);
@@ -149,10 +151,28 @@ globalThis.EdhrecPanel = (() => {
     return { hits, total };
   }
 
-  /** Deck minus the commander, which Commander Spellbook wants passed separately. */
+  /**
+   * The deck's commanders, as normalised names.
+   *
+   * Excluded from the Cuts and Average views because neither statement holds
+   * for a commander: you cannot cut it, and it is not a way your list differs
+   * from the average (EDHREC keeps the commander out of the average's card
+   * list entirely). Partner and background pairings mean this is a set, not a
+   * single name.
+   */
+  function commanderSet() {
+    const names = state.commanders?.length ? state.commanders : [state.commander];
+    return new Set(names.filter(Boolean).map(norm));
+  }
+
+  const withoutCommanders = (cards) => {
+    const cmd = commanderSet();
+    return cards.filter((c) => !cmd.has(norm(c.name)));
+  };
+
+  /** Deck minus the commanders, which Commander Spellbook wants passed separately. */
   function mainDeckNames() {
-    const cmd = norm(state.commander || '');
-    return state.deckCards.map((c) => c.name).filter((n) => norm(n) !== cmd);
+    return withoutCommanders(state.deckCards).map((c) => c.name);
   }
 
   /** One request each, on first use of their tab. */
@@ -567,7 +587,9 @@ globalThis.EdhrecPanel = (() => {
     const avgSet = new Set(average.map(norm));
     const shared = [...state.deck].filter((n) => avgSet.has(n));
     const missing = average.filter((n) => !state.deck.has(norm(n)));
-    const yoursOnly = state.deckCards.filter((c) => !avgSet.has(norm(c.name)));
+    // EDHREC keeps the commander out of the average's card list, so leaving it
+    // in here would always report it as a card the average does not run.
+    const yoursOnly = withoutCommanders(state.deckCards).filter((c) => !avgSet.has(norm(c.name)));
 
     const stat = el('div', 'edhrec-panel-avgstat');
     stat.append(el('span', 'edhrec-panel-saltnum', String(shared.length)));

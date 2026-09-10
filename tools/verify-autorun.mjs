@@ -274,6 +274,7 @@ try {
         // Every cut candidate must actually BE in the deck - the mirror of the
         // Add tab's invariant.
         notInDeck: listed.filter((n) => n && !deck.has(n.split('//')[0].trim().toLowerCase())),
+        sectionsRows: listed,
       };
     });
     check(cuts.heading === 'Trim this deck', 'cuts tab switches', `(${cuts.heading})`);
@@ -285,6 +286,12 @@ try {
     const ascending = cuts.synOrder.every((v, i, a) => i === 0 || a[i - 1] <= v);
     check(ascending && cuts.synOrder.length > 1, 'cuts sorted worst-synergy first', `(${cuts.synOrder.slice(0, 4).join(', ')})`);
     check(Boolean(cuts.salt), 'deck salt total shown', cuts.salt ? `(${cuts.salt.slice(0, 44)})` : '');
+    // You cannot cut your commander, so it must never be offered as a cut.
+    const cmdName = (edh.commanders || '').split(' and ')[0].trim().toLowerCase();
+    const cutListsCommander = cmdName
+      ? cuts.sectionsRows.some((n) => n.toLowerCase() === cmdName)
+      : false;
+    check(!cutListsCommander, 'commander is not listed as a cut', cmdName ? `(${cmdName})` : '(no commander)');
 
     // --- Combos (Commander Spellbook) -----------------------------------------
     await page.locator('.edhrec-panel-tab', { hasText: 'Combos' }).first().click();
@@ -330,6 +337,16 @@ try {
       avg.sections.includes('In the average, not yours') && avg.sections.includes('Yours, not in the average'),
       'both directions of the comparison shown',
       `(${avg.sections.join(' / ')})`
+    );
+    // EDHREC keeps the commander out of the average's card list, so leaving it
+    // in ours would always report it as a difference.
+    const avgNames = await page.evaluate(() =>
+      [...document.querySelectorAll('.edhrec-panel-name')].map((n) => n.textContent.trim().toLowerCase())
+    );
+    check(
+      !cmdName || !avgNames.includes(cmdName),
+      'commander is not listed in the average comparison',
+      cmdName ? `(${cmdName})` : '(no commander)'
     );
 
     await page.locator('.edhrec-panel-tab', { hasText: 'Add' }).first().click();
