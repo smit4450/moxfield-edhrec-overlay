@@ -97,6 +97,26 @@ one request per **deck** buys all of it:
 | List tags | High Synergy, Top Cards, Game Changers, New Cards |
 | Salt | from the global top-100 list |
 
+### Flavor names
+
+Moxfield displays a card's **flavor name** where it has one — *Valley Farmstead* rather
+than *Yavimaya, Cradle of Growth* — and Scryfall's `name` identifier matches only real
+names:
+
+```
+/cards/collection {name:"Valley Farmstead"}  →  not_found
+/cards/search ?q=!"Valley Farmstead"         →  Yavimaya, Cradle of Growth  (rank 77)
+```
+
+So every Universes Beyond reskin came back not_found and rendered as unranked — and,
+worse, the miss was *negative-cached*, so it stayed unranked for a week. Scryfall's
+search does match flavor names, so a name the collection endpoint rejects is now chased
+with an exact search before any negative is written. Bounded per call, since each miss
+costs a request; tokens still resolve to nothing and are cached as such.
+
+Prices were already fine here by accident: their fallback path uses search, which
+matches flavor names for free.
+
 ### Commanders get their commander rank
 
 Scryfall's `edhrec_rank` answers *"how often is this card played in any deck"*. For a

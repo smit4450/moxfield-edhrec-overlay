@@ -82,6 +82,7 @@ const CASES = [
   { name: 'Brutal Cathar', ranked: true, note: 'transform, front face only' },
   { name: 'Fire // Ice', ranked: true, note: 'split' },
   { name: 'Bonecrusher Giant // Stomp', ranked: true, note: 'adventure' },
+  { name: 'Valley Farmstead', ranked: true, note: 'FLAVOR name for Yavimaya, Cradle of Growth' },
   { name: 'Island', ranked: false, note: 'real card, legitimately unranked' },
   { name: 'Zzzzz Not A Card', ranked: false, note: 'genuine miss, negative-cached' },
 ];
@@ -108,6 +109,20 @@ const replayed = Object.keys(replay).length;
 const cacheOk = calls === 0 && replayed === CASES.length;
 if (!cacheOk) failures++;
 console.log(`\n${cacheOk ? '  ok  ' : ' FAIL '} cache replay: ${calls} network calls, ${replayed}/${CASES.length} resolved`);
+
+// A flavor name must resolve to the SAME rank as the card it reskins, or the
+// fallback found some other card.
+// The cache-replay check above swapped fetch for a throwing stub.
+globalThis.fetch = uaFetch;
+const pair = await lookup(['Valley Farmstead', 'Yavimaya, Cradle of Growth']);
+const sameRank =
+  pair['Valley Farmstead']?.rank != null &&
+  pair['Valley Farmstead'].rank === pair['Yavimaya, Cradle of Growth']?.rank;
+if (!sameRank) failures++;
+console.log(
+  `${sameRank ? '  ok  ' : ' FAIL '} flavor name resolves to the real card  ` +
+    `(Valley Farmstead #${pair['Valley Farmstead']?.rank}, Yavimaya #${pair['Yavimaya, Cradle of Growth']?.rank})`
+);
 
 // --- stale / wrong-shape cache must not be served ---------------------------
 // The cache-replay check above swapped fetch for a throwing stub; this section

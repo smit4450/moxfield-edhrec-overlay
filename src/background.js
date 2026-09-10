@@ -24,12 +24,16 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * Bumped whenever previously-cached values could be wrong, so entries written
  * by an older build are ignored instead of served.
  *
+ * v3: flavor-named cards (Universes Beyond reskins) were negative-cached as
+ * unranked, so those entries have to be retired or they would keep reporting
+ * "unranked" for a week after the fix.
+ *
  * v2: before the multi-face fix, every MDFC, transform, split and adventure
  * card was negative-cached as `null`. Without a bump those entries would keep
  * reporting "unranked" for the full 7-day TTL after the fix shipped, making the
  * fix look like it had not worked.
  */
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_PREFIX = `rank:${CACHE_VERSION}:`;
 
 /**
@@ -185,6 +189,44 @@ async function fetchBatch(names) {
   return indexCards(body.data || []);
 }
 
+/**
+ * How many not-found names to chase individually per call. Misses are normally
+ * rare (tokens, reskins), and each one costs a request.
+ */
+const MAX_NAME_FALLBACKS = 20;
+
+/**
+ * Resolve a name that `/cards/collection` rejects.
+ *
+ * Moxfield displays a card's FLAVOR name where it has one - "Valley Farmstead"
+ * for Yavimaya, Cradle of Growth - and the `name` identifier matches only real
+ * names, so every Universes Beyond reskin came back not_found and rendered as
+ * unranked forever, since the miss was negative-cached.
+ *
+ * Scryfall's SEARCH does match flavor names, so an exact search rescues them.
+ * Verified: !"Valley Farmstead" returns Yavimaya, Cradle of Growth at rank 77.
+ */
+async function resolveBySearch(name) {
+  const q = encodeURIComponent(`!"${name.replace(/"/g, '')}"`);
+  try {
+    const res = await enqueue(() =>
+      fetch(`${SCRYFALL_SEARCH}?q=${q}`, { headers: { Accept: 'application/json' } })
+    );
+    // 404 means nothing matched, which is a real answer for a token.
+    if (!res.ok) return null;
+    const card = ((await res.json()).data || [])[0];
+    if (!card) return null;
+    return {
+      rank: card.edhrec_rank ?? null,
+      gameChanger: card.game_changer === true,
+      scryfallUri: card.scryfall_uri ?? null,
+    };
+  } catch (err) {
+    console.warn('[edhrec-overlay] name fallback failed:', name, err.message);
+    return null;
+  }
+}
+
 /** Resolve names to rank records, hitting the network only for cache misses. */
 async function lookup(names) {
   const unique = [...new Set(names.filter(Boolean).map((n) => n.trim()))];
@@ -193,6 +235,7 @@ async function lookup(names) {
   if (!stale.length) return result;
 
   const resolved = [];
+  const missed = [];
 
   for (const batch of chunk(stale, MAX_IDENTIFIERS)) {
     let found;
@@ -208,11 +251,21 @@ async function lookup(names) {
       // response is indexed under both, so this resolves whether Moxfield gave
       // us "Malakir Rebirth" or "Malakir Rebirth // Malakir Mire".
       const hit = found.get(name.toLowerCase()) ?? found.get(frontFace(name).toLowerCase()) ?? null;
-      // A miss here means Scryfall genuinely does not know the name (a token,
-      // or a bad read). Cache the negative so we stop asking.
-      result[name] = hit;
-      resolved.push([name, hit]);
+      if (hit) {
+        result[name] = hit;
+        resolved.push([name, hit]);
+      } else {
+        missed.push(name);
+      }
     }
+  }
+
+  // A miss is not yet an answer: the `name` identifier does not match flavor
+  // names, so chase those by search before caching any negative.
+  for (const name of missed.slice(0, MAX_NAME_FALLBACKS)) {
+    const hit = await resolveBySearch(frontFace(name));
+    result[name] = hit;
+    resolved.push([name, hit]);
   }
 
   await writeCache(resolved);
