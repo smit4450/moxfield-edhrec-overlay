@@ -9,6 +9,7 @@
     "verify": "node tools/verify-live.mjs",
     "lint": "web-ext lint --self-hosted",
     "build": "web-ext build --overwrite-dest",
+    "sign": "web-ext sign --channel=unlisted",
     "verify:autorun": "node tools/verify-autorun.mjs"
   },
   "devDependencies": {

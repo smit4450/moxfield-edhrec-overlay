@@ -414,11 +414,26 @@ module.exports = {
 Then signing is just:
 
 ```bash
-npx web-ext sign --channel=unlisted
+npm run sign
 ```
 
-Swap `--channel=listed` to publish publicly. Source-code submission is only required for
-minified or obfuscated code, which this is not.
+Swap the channel to `listed` to publish publicly. Source-code submission is only
+required for minified or obfuscated code, which this is not.
+
+The signed `.xpi` lands in `web-ext-artifacts/` under an AMO-assigned filename; the
+extension id inside it is unchanged. Install it permanently via `about:addons` → the
+gear icon → **Install Add-on From File**, or by dragging it onto a Firefox window.
+Remove the temporary copy from `about:debugging` first — it shares an id with the signed
+one.
+
+Two things that bite on the second release:
+
+- **Bump `version` in `manifest.json` every time.** AMO rejects a version it has already
+  seen, so re-signing without a bump fails.
+- **Unlisted add-ons do not auto-update.** Firefox only checks for updates if the
+  manifest carries an `update_url` pointing at an update manifest you host. Without one,
+  a new version means signing and installing by hand — fine for personal use, worth
+  knowing before handing the file to anyone else.
 
 Three ways to get this wrong, in descending order of pain:
 

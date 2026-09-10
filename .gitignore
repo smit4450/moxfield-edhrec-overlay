@@ -1,9 +1,11 @@
 # Credentials must never live in this repo - it is public.
+# web-ext signing state: machine-local, not source.
 *.log
 *.pem
 *.xpi
 *.zip
 .DS_Store
+.amo-upload-uuid
 .env
 .env.*
 .pw-ext/
