@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The contract test exists to catch THIRD-PARTY drift, which happens on
+    # calendar time rather than on commits. Weekly, Monday 08:00 UTC.
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: web-ext lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # No install step: the extension has zero runtime dependencies, and
+      # web-ext is fetched on demand.
+      - run: npx --yes web-ext@latest lint --source-dir . --self-hosted
+
+  contract:
+    name: Scryfall / EDHREC contract
+    # Only on a schedule or by hand. It calls live third-party APIs, so running
+    # it on every push would be both slow and impolite - and it would fail for
+    # reasons that have nothing to do with the commit.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: node tools/test-lookup.mjs
+
+# Not run in CI: tools/verify-autorun.mjs and tools/verify-live.mjs. Both drive
+# a real browser at Moxfield, and Cloudflare blocks headless outright, so they
+# must run headed on a desktop. See CLAUDE.md.

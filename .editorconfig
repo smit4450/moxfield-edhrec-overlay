@@ -1,0 +1,19 @@
+# Keeps editors writing what .gitattributes already normalises, so committing
+# from Windows stops emitting "CRLF will be replaced by LF" on every file.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Markdown uses trailing spaces for hard line breaks.
+trim_trailing_whitespace = false
+
+[*.{png,svg,xpi,zip}]
+insert_final_newline = false
+trim_trailing_whitespace = false

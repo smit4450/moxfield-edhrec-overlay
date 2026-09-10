@@ -8,6 +8,10 @@ neighbors — [Moxfield Card Pricer][pricer], [Moxfield to Scryfall Linker][link
 *other* sites. Moxfield users have an open feature request for native
 [EDHREC rank on the deck page][nolt706] that has not shipped.
 
+Working on it? **[CLAUDE.md](CLAUDE.md)** is the guide for contributors and coding
+agents: architecture rules, the verification workflow, and the traps in each third-party
+API — most of which were found by something breaking.
+
 ## How it works
 
 The badge face is a rank, from Scryfall. Everything else lives in a styled tooltip:
