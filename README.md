@@ -383,6 +383,51 @@ card's face.
 
 `tools/test-lookup.mjs` covers all four layouts in both spellings.
 
+## Publishing
+
+`npm run build` produces `web-ext-artifacts/*.zip`. Signing is mandatory: Firefox release
+and beta will not permanently install an unsigned extension, whether or not it is
+publicly listed.
+
+| | Unlisted (self-distributed) | Listed (public AMO) |
+|---|---|---|
+| Discoverable | no | yes |
+| Review | automated | automated, may be followed by human review |
+| Result | a signed `.xpi` you host | an AMO listing page |
+| Needs listing copy | no | yes |
+
+Get API credentials from the [AMO key page](https://addons.mozilla.org/developers/addon/api/key/),
+then:
+
+```bash
+WEB_EXT_API_KEY=... WEB_EXT_API_SECRET=... npx web-ext sign --channel=unlisted
+```
+
+Swap `--channel=listed` to publish publicly. Source-code submission is only required for
+minified or obfuscated code, which this is not.
+
+### Data collection must be declared accurately
+
+`data_collection_permissions` is `["websiteContent"]`, **not** `none`. Mozilla defines
+that category as anything visible on a website that is "collected, used, transferred,
+shared, or handled outside the add-on or the local browser" — and this extension sends
+deck card names to Scryfall, EDHREC and Commander Spellbook. That is the extension's
+whole purpose, so it is `required` rather than optional, but declaring `none` would be
+inaccurate and is the sort of thing a reviewer catches.
+
+Nothing personal is transmitted, and nothing leaves the browser except card names.
+
+### Before listing publicly
+
+- **EDHREC and Commander Spellbook are unofficial APIs.** One user is negligible; a
+  popular listing is not. Caching keeps it to roughly one request per deck per day, but
+  it would be courteous to tell them before a public launch — and either could change or
+  block without notice, at which point every user degrades to rank-only at once.
+- **Read [Moxfield's terms][moxterms].** The extension only reads the rendered page and
+  never touches their API, which is the defensible position, but check it yourself.
+- **Wizards' Fan Content Policy** covers the card names and images. Carry the disclaimer
+  at the bottom of this file into the AMO listing.
+
 ## Install (temporary, for development)
 
 Requires **Firefox 140+** (142+ on Android) — that's the floor for the

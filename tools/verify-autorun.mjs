@@ -32,6 +32,9 @@ const extDir = join(root, '.pw-ext');
 rmSync(extDir, { recursive: true, force: true });
 mkdirSync(extDir, { recursive: true });
 cpSync(join(root, 'src'), join(extDir, 'src'), { recursive: true });
+// Icons too: the manifest references them, and Chromium refuses to load an
+// extension whose declared icon files are missing.
+cpSync(join(root, 'icons'), join(extDir, 'icons'), { recursive: true });
 
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
 delete manifest.browser_specific_settings; // Firefox-only, and Chromium rejects the id
