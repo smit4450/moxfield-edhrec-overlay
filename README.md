@@ -396,15 +396,45 @@ publicly listed.
 | Result | a signed `.xpi` you host | an AMO listing page |
 | Needs listing copy | no | yes |
 
-Get API credentials from the [AMO key page](https://addons.mozilla.org/developers/addon/api/key/),
-then:
+Get API credentials from the [AMO key page](https://addons.mozilla.org/developers/addon/api/key/).
+
+**Put them in `~/.web-ext-config.cjs`, never in this repo — it is public.** web-ext
+auto-discovers that file from the home directory, so no flags and no shell history:
+
+```js
+// ~/.web-ext-config.cjs  (home directory, note the leading dot)
+module.exports = {
+  sign: {
+    apiKey: 'user:12345678:123',
+    apiSecret: '...',
+  },
+};
+```
+
+Then signing is just:
 
 ```bash
-WEB_EXT_API_KEY=... WEB_EXT_API_SECRET=... npx web-ext sign --channel=unlisted
+npx web-ext sign --channel=unlisted
 ```
 
 Swap `--channel=listed` to publish publicly. Source-code submission is only required for
 minified or obfuscated code, which this is not.
+
+Three ways to get this wrong, in descending order of pain:
+
+- **`web-ext-config.cjs` in this repo is tracked.** It is the file web-ext reads from the
+  working directory, so it looks like the obvious home for credentials, and committing
+  it would publish them. The home-directory file is the dot-prefixed one and is a
+  different path entirely.
+- **`--api-secret=...` on the command line** lands in shell history and in process
+  listings on a shared machine.
+- **Inline environment variables** (`WEB_EXT_API_SECRET=... npx web-ext sign`) also land
+  in shell history.
+
+If a secret is ever committed, deleting the commit is not enough — history, forks and
+caches persist. Revoke and regenerate the credential on the AMO key page instead. The
+gitignore covers `.env*`, `.web-ext-config.*` and `*.pem` as a backstop, but a backstop
+is not a plan.
 
 ### Data collection must be declared accurately
 
