@@ -148,6 +148,30 @@ try {
     console.log('   (deck has no commander; EDHREC enrichment correctly skipped)');
   }
 
+  // --- Commander rank -------------------------------------------------------
+  // A commander's rank as a CARD is a different, much larger number than its
+  // rank as a commander, and the card one is useless on its own deck page.
+  if (edh.commanders?.length) {
+    const cmdBadge = await page.evaluate((cmdName) => {
+      const want = cmdName.split(' and ')[0].trim().toLowerCase();
+      const b = [...document.querySelectorAll('.edhrec-badge')].find(
+        (x) => (x.dataset.cardName || '').split('//')[0].trim().toLowerCase() === want
+      );
+      return b
+        ? { text: b.textContent.trim(), label: b.getAttribute('aria-label') || '' }
+        : null;
+    }, edh.commanders);
+    const rank = cmdBadge ? Number(cmdBadge.text.replace(/[^\d]/g, '')) : null;
+    check(
+      Boolean(cmdBadge) && /Commander rank/.test(cmdBadge.label),
+      'commander badge shows its commander rank',
+      cmdBadge ? `(${cmdBadge.text}, ${cmdBadge.label.split('.')[1]?.trim()})` : '(no commander badge)'
+    );
+    // Sanity: commander ranks are small. A four-figure number here means the
+    // card rank leaked back through.
+    check(rank != null && rank < 2000, 'commander rank is not the card rank', `(#${rank})`);
+  }
+
   // --- SPA navigation -------------------------------------------------------
   // The content script is injected once per document load. Moxfield routes
   // client-side, so arriving at a deck without a reload must still badge it —

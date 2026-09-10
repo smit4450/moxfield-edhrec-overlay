@@ -248,6 +248,9 @@ const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * on its own schedule, and bumping it should not throw away every rank and
  * force a full Scryfall refetch.
  *
+ * v4: the cached value gained `commander` - the commander's own rank, which is
+ * a different number from its rank as a card.
+ *
  * v3: the cached value gained `lists` (ordered recommendations) and a Scryfall
  * `id` per card, so earlier entries are the wrong shape.
  *
@@ -259,7 +262,7 @@ const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * and see the shape check in commanderStats(), which now catches this class of
  * error even when the version is fumbled.
  */
-const EDHREC_VERSION = 'v3';
+const EDHREC_VERSION = 'v4';
 const EDHREC_PREFIX = `edhrec:${EDHREC_VERSION}:`;
 const SALT_KEY = `salt:${EDHREC_VERSION}`;
 
@@ -302,6 +305,27 @@ function indexCommanderPage(page) {
   const stats = {};
   const lists = [];
 
+  /**
+   * The commander's own rank, which is not its rank as a card.
+   *
+   * Scryfall's edhrec_rank answers "how often is this card played in any
+   * deck". For a commander the interesting question is "how often is it played
+   * AS the commander", and EDHREC answers it on the same page we already
+   * fetch. Bria, Riptide Rogue is the 240th most-played commander and the
+   * 3,058th most-played card; showing the latter on her own deck page is
+   * technically true and practically useless.
+   */
+  const cmd = page?.container?.json_dict?.card;
+  const commander =
+    cmd && typeof cmd.rank === 'number'
+      ? {
+          name: cmd.name,
+          rank: cmd.rank,
+          numDecks: cmd.num_decks ?? null,
+          salt: typeof cmd.salt === 'number' ? cmd.salt : null,
+        }
+      : null;
+
   for (const list of page?.container?.json_dict?.cardlists || []) {
     const label = list.header || list.tag || '';
     const cards = [];
@@ -326,7 +350,7 @@ function indexCommanderPage(page) {
     if (label && cards.length) lists.push({ header: label, cards });
   }
 
-  return { stats, lists };
+  return { stats, lists, commander };
 }
 
 /**
@@ -403,6 +427,7 @@ async function edhrecForDeck(commanderNames) {
   return {
     stats: page?.stats || {},
     lists: page?.lists || [],
+    commanderCard: page?.commander || null,
     salt: salt || {},
     matched: Boolean(page),
   };

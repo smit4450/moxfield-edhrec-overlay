@@ -45,6 +45,24 @@
   let edhrec = { stats: {}, salt: {}, matched: false, commander: '' };
 
   const frontFace = (n) => n.split('//')[0].trim().toLowerCase();
+
+  /**
+   * Rank info for a card, preferring the COMMANDER rank when it is one.
+   *
+   * Scryfall's edhrec_rank answers "how often is this played in any deck".
+   * For a commander the question is "how often is it played AS the commander",
+   * which is a different number: Bria, Riptide Rogue is the 240th commander
+   * and the 3,058th card. On her own deck page the card rank is technically
+   * true and practically useless.
+   */
+  function infoFor(name) {
+    const base = rankCache.get(name);
+    const cmd = edhrec.commanderCard;
+    if (cmd && frontFace(name) === frontFace(cmd.name)) {
+      return { ...(base || {}), rank: cmd.rank, isCommander: true, commanderDecks: cmd.numDecks };
+    }
+    return base;
+  }
   const statFor = (name, table) => table[name.toLowerCase()] ?? table[frontFace(name)];
   const pct = (n) => `${(n * 100).toFixed(1)}%`;
 
@@ -57,7 +75,21 @@
    * lets a negative synergy be coloured differently from a positive one.
    */
   function tooltipModel(name, info, moxfieldFlagsGameChanger = false) {
-    const model = { name, rank: info?.rank ?? null, rows: [], chips: [] };
+    const model = {
+      name,
+      rank: info?.rank ?? null,
+      isCommander: info?.isCommander === true,
+      rows: [],
+      chips: [],
+    };
+
+    if (model.isCommander && info?.commanderDecks != null) {
+      model.rows.push({
+        label: 'Decks',
+        value: info.commanderDecks.toLocaleString(),
+        sub: 'running it as commander',
+      });
+    }
     const stat = statFor(name, edhrec.stats);
 
     if (stat && typeof stat.synergy === 'number') {
@@ -102,7 +134,12 @@
 
   /** Flattened for `aria-label`, since the visual tooltip is not readable. */
   function plainSummary(m) {
-    const parts = [m.name, m.rank == null ? 'not ranked on EDHREC' : `EDHREC rank ${m.rank.toLocaleString()}`];
+    const parts = [
+      m.name,
+      m.rank == null
+        ? 'not ranked on EDHREC'
+        : `${m.isCommander ? 'Commander' : 'EDHREC'} rank ${m.rank.toLocaleString()}`,
+    ];
     for (const r of m.rows) parts.push(`${r.label} ${r.value}${r.sub ? ` (${r.sub})` : ''}`);
     for (const c of m.chips) parts.push(c.text);
     return parts.join('. ');
@@ -183,7 +220,7 @@
         for (const b of document.querySelectorAll('.edhrec-badge')) {
           const name = b.dataset.cardName;
           if (!name) continue;
-          const m = tooltipModel(name, rankCache.get(name), b.dataset.moxGameChanger === '1');
+          const m = tooltipModel(name, infoFor(name), b.dataset.moxGameChanger === '1');
           b.setAttribute('aria-label', plainSummary(m));
           // If this badge's tooltip is open right now, refresh it in place.
           if (tipFor === b) {
@@ -291,7 +328,7 @@
   }
 
   function paintTip(badge, name) {
-    renderTip(tooltipModel(name, rankCache.get(name), badge.dataset.moxGameChanger === '1'));
+    renderTip(tooltipModel(name, infoFor(name), badge.dataset.moxGameChanger === '1'));
     // Measure with it laid out but still transparent, or the first frame jumps.
     positionTip(badge);
   }
@@ -317,7 +354,9 @@
 
         // The badge face came from the same missing entry, so repair it too.
         // A rescan would not: findTargets() skips hosts already marked done.
-        const info = rankCache.get(name);
+        // Via infoFor, so repairing the commander's badge does not quietly
+        // swap its commander rank back for its card rank.
+        const info = infoFor(name);
         if (badge.isConnected && info?.rank != null && badge.textContent === '—') {
           badge.classList.remove('edhrec-unranked');
           badge.classList.add(tierFor(info.rank));
@@ -441,7 +480,7 @@
         if (!t.host.isConnected) continue;
         // A live host may have moved on to another card in the meantime.
         if (t.live && dom.badgedName(t.mount) === t.name) continue;
-        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name), t.moxfieldFlagsGameChanger));
+        dom.attachBadge(t, buildBadge(t.name, infoFor(t.name), t.moxfieldFlagsGameChanger));
       }
     } finally {
       running = false;
@@ -467,7 +506,7 @@
     for (const t of dom.findPreviewTargets()) {
       if (dom.badgedName(t.mount) === t.name) continue;
       if (rankCache.has(t.name))
-        dom.attachBadge(t, buildBadge(t.name, rankCache.get(t.name), t.moxfieldFlagsGameChanger));
+        dom.attachBadge(t, buildBadge(t.name, infoFor(t.name), t.moxfieldFlagsGameChanger));
       else needsLookup = true;
     }
     if (needsLookup) schedule();

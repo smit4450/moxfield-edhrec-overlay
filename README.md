@@ -97,6 +97,27 @@ one request per **deck** buys all of it:
 | List tags | High Synergy, Top Cards, Game Changers, New Cards |
 | Salt | from the global top-100 list |
 
+### Commanders get their commander rank
+
+Scryfall's `edhrec_rank` answers *"how often is this card played in any deck"*. For a
+commander the useful question is *"how often is it played **as** the commander"*, and
+that is a different number:
+
+| | as a card | as a commander |
+|---|---:|---:|
+| Bria, Riptide Rogue | #3,058 | **#240** |
+| Atraxa, Praetors' Voice | — | **#4** |
+| The Ur-Dragon | — | **#2** |
+
+Showing the card rank on a commander's own deck page is technically true and practically
+useless. The commander rank comes from `container.json_dict.card.rank` on the commander
+page we already fetch, so it costs nothing extra, and the tooltip says *Commander rank*
+rather than *EDHREC rank* so the two are never confused. It also reports how many decks
+run it as their commander.
+
+Partner and background pairings share one EDHREC page; whichever commander that page
+describes gets the commander rank, and the other falls back to its card rank.
+
 Synergy is the field a rank cannot express. Arcane Signet is **+2.9%** with Alania and
 **−0.2%** with Atraxa: played constantly, but it says nothing about either deck. A card
 at +71% is one that basically only exists for that commander.
