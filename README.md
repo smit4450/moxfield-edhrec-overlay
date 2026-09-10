@@ -421,8 +421,27 @@ Then signing is just:
 npm run sign
 ```
 
-Swap the channel to `listed` to publish publicly. Source-code submission is only
-required for minified or obfuscated code, which this is not.
+Source-code submission is only required for minified or obfuscated code, which this is
+not.
+
+### Listing publicly
+
+Everything AMO asks for is prepared in [`listing/LISTING.md`](listing/LISTING.md) —
+summary (within the 250-character limit), description, categories, and notes for
+reviewers — with screenshots at AMO's 1280×800 in `listing/screenshots/`.
+
+1. **Bump `version` in `manifest.json` first.** AMO refuses a version it has already
+   accepted, *for the add-on as a whole* — so `0.1.0`, already used for the unlisted
+   signing, cannot be reused on the listed channel.
+2. Developer Hub → the add-on → submit a new version on the **listed** channel, or
+   `npx web-ext sign --channel=listed`.
+3. Fill the listing from `listing/LISTING.md`, upload the screenshots, and attach
+   [`PRIVACY.md`](PRIVACY.md).
+4. A listed submission may get human review on top of the automated checks.
+
+A privacy policy is **required**, because the extension transmits card names off the
+device. That is also why `data_collection_permissions` is `websiteContent` and not
+`none`; the two need to agree or a reviewer will ask.
 
 The signed `.xpi` lands in `web-ext-artifacts/` under an AMO-assigned filename; the
 extension id inside it is unchanged. Install it permanently via `about:addons` → the

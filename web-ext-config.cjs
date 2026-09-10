@@ -10,6 +10,12 @@ module.exports = {
   ignoreFiles: [
     'tools',
     'node_modules',
+    // Listing assets are for AMO, not for the package: the screenshots alone
+    // are several MB and would ship inside every install.
+    'listing',
+    'CLAUDE.md',
+    '.github',
+    '.editorconfig',
     // Playwright's persistent profile and screenshots: large, local-only, and
     // nothing to do with the shipped extension.
     '.pw-profile',
