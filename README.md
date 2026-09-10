@@ -433,8 +433,13 @@ reviewers — with screenshots at AMO's 1280×800 in `listing/screenshots/`.
 1. **Bump `version` in `manifest.json` first.** AMO refuses a version it has already
    accepted, *for the add-on as a whole* — so `0.1.0`, already used for the unlisted
    signing, cannot be reused on the listed channel.
-2. Developer Hub → the add-on → submit a new version on the **listed** channel, or
-   `npx web-ext sign --channel=listed`.
+2. Submit a listed version. The Developer Hub form is the easier first pass; by CLI, a
+   listed submission needs metadata the unlisted channel does not, and fails without it
+   (`version.license ... is required for listed versions`):
+
+   ```bash
+   npx web-ext sign --channel=listed --amo-metadata=listing/amo-metadata.json
+   ```
 3. Fill the listing from `listing/LISTING.md`, upload the screenshots, and attach
    [`PRIVACY.md`](PRIVACY.md).
 4. A listed submission may get human review on top of the automated checks.

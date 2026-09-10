@@ -1,0 +1,24 @@
+{
+  "name": {
+    "en-US": "Moxfield EDHREC Overlay"
+  },
+  "summary": {
+    "en-US": "Puts EDHREC rank, synergy and price on every card in your Moxfield deck, then shows what to add, what to cut, and which combos you are one card away from. Reads the page only - never your account."
+  },
+  "description": {
+    "en-US": "Moxfield tells you what is in your deck. This tells you how it compares.\n\nEvery card gets a badge showing its EDHREC rank, colour-coded so the staples and the filler are distinguishable at a glance. Hover one for the numbers that rank alone cannot express:\n\n- Synergy: how much more this card is played WITH your commander than in decks generally. A card at +58% belongs in your deck specifically; a card at +2% is just popular everywhere.\n- Inclusion: the share of decks for your commander that run it.\n- Salt, and whether the card is on the Commander Game Changer list.\n\nA drawer on the right adds four views:\n\n- Add: EDHREC's recommendations your deck does not already run, led by the highest-synergy picks, with prices and a running total. Tick the ones you want and copy them into Moxfield's bulk import.\n- Cuts: your own deck sorted worst-first, so the cards pulling their weight least are the ones you see. Includes a deck salt total.\n- Combos: from Commander Spellbook, combos already assembled in your deck and the ones a SINGLE card away. \"Add Hullbreaker Horror for infinite mana\" is a more useful suggestion than a rank.\n- Avg: how your list compares to EDHREC's average deck for your commander, in both directions.\n\nWorks in all six Moxfield view styles, including the large hover preview.\n\nWHAT IT DOES NOT DO\n\nIt never touches your Moxfield account or their API. It reads the page you are already looking at and asks three public services about the cards on it: Scryfall, EDHREC and Commander Spellbook. No account, no analytics, no tracking.\n\nPrivacy policy: https://github.com/smit4450/moxfield-edhrec-overlay/blob/main/PRIVACY.md\nSource: https://github.com/smit4450/moxfield-edhrec-overlay\n\nUnofficial Fan Content permitted under the Wizards of the Coast Fan Content Policy. Not produced by or endorsed by Wizards of the Coast, Moxfield, EDHREC, Scryfall or Commander Spellbook."
+  },
+  "categories": [
+    "games-entertainment"
+  ],
+  "homepage": {
+    "en-US": "https://github.com/smit4450/moxfield-edhrec-overlay"
+  },
+  "support_url": {
+    "en-US": "https://github.com/smit4450/moxfield-edhrec-overlay/issues"
+  },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "Source is unminified and unbundled, and there is no build step: the JavaScript in the package is the JavaScript in the repository, byte for byte.\nhttps://github.com/smit4450/moxfield-edhrec-overlay\n\nThe package contains manifest.json, src/, icons/, README.md, PRIVACY.md and LICENSE. Development tooling (tools/, listing/, CI config) is excluded via web-ext-config.cjs and is not part of the extension.\n\nHost permissions, and why each is needed:\n- moxfield.com - the content script reads card names from the rendered deck page and draws the overlay. It never calls Moxfield's own API and never touches the user's account or session.\n- api.scryfall.com - card ranks and prices, via POST /cards/collection.\n- json.edhrec.com - commander-specific synergy and recommendations, one request per deck.\n- backend.commanderspellbook.com - combo detection, one request per deck.\n\ndata_collection_permissions is declared as websiteContent rather than none, because card names read from the page are transmitted to those three services. That is the extension's core function and is described in the listing and the privacy policy.\n\nResults are cached in storage.local for 24 hours to 7 days to minimise requests. No analytics, no remote code, and no eval in the shipped source."
+  }
+}
