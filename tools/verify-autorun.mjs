@@ -324,6 +324,39 @@ try {
     );
     console.log('   e.g.', combo.sample);
 
+    // Combo pieces are usually NOT in EDHREC's list for the commander, so they
+    // arrive with no Scryfall id and used to get no hover preview at all.
+    await page.waitForTimeout(4000); // prices carry the id, and arrive late
+    // Must be a row EDHREC does NOT list for this commander, i.e. one with no
+    // synergy figure. Those are the rows that had no id and so no preview;
+    // hovering any old row tests nothing, because the listed ones always
+    // worked.
+    const rowSplit = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.edhrec-panel-combo .edhrec-panel-row')];
+      const unlisted = rows.filter((r) => !r.querySelector('.edhrec-panel-syn'));
+      // Mark one so the hover below targets it unambiguously.
+      unlisted[0]?.setAttribute('data-test-unlisted', '1');
+      return { rows: rows.length, unlisted: unlisted.length, name: unlisted[0]?.querySelector('.edhrec-panel-name')?.textContent };
+    });
+    console.log(`   combo rows ${rowSplit.rows}, of which ${rowSplit.unlisted} are not in EDHREC's list` +
+      (rowSplit.name ? ` (testing ${rowSplit.name})` : ''));
+    const comboRow = await page.$('[data-test-unlisted="1"]');
+    let preview = null;
+    if (comboRow) {
+      await comboRow.scrollIntoViewIfNeeded();
+      await comboRow.hover();
+      await page.waitForTimeout(1500);
+      preview = await page.evaluate(() => {
+        const i = document.querySelector('.edhrec-panel-img');
+        return i ? { visible: i.classList.contains('is-visible'), loaded: i.complete && i.naturalWidth > 0 } : null;
+      });
+    }
+    check(
+      Boolean(preview?.visible && preview?.loaded),
+      'combo pieces EDHREC does not list still preview',
+      preview ? JSON.stringify(preview) : `(no preview; ${rowSplit.unlisted} unlisted rows available)`
+    );
+
     // --- Average decklist -----------------------------------------------------
     await page.locator('.edhrec-panel-tab', { hasText: 'Avg' }).first().click();
     await page.waitForTimeout(6000);

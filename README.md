@@ -65,7 +65,7 @@ content.js ──▶ background.js ──▶ POST api.scryfall.com/cards/collect
 ```
 
 A 100-card Commander deck is **two requests, ~1 second**, then nothing until the cache
-expires. Cache keys carry a version (`rank:v2:`, `edhrec:v3:`); bumping one retires
+expires. Cache keys carry a version (`rank:v2:`, `edhrec:v3:`, `price:v2:`); bumping one retires
 entries whose values a fix has invalidated, and superseded entries in every family are
 purged on startup.
 
@@ -200,7 +200,14 @@ Niv-Mizzet, Parun    -6.9%  18.5%   $5.70
 ```
 
 The missing card is rendered as an ordinary recommendation row, so it prices, previews
-and copies like anything else in the Add tab. Only combos missing exactly one card are
+and copies like anything else in the Add tab.
+
+Card images need a Scryfall id, and EDHREC supplies one only for cards it lists for your
+commander — which most combo pieces are not. On the deck measured, **10 of 15** combo
+rows fell into that gap and showed no preview at all. The id now travels back with the
+price, which resolves those cards by name anyway, so it costs no extra request. The
+fallback search also keeps the first printing when a card has no price anywhere: an
+unpriced card still deserves its image. Only combos missing exactly one card are
 shown — "you are five cards from this" is not a suggestion. Its `missing` list is
 recomputed locally against the deck we sent rather than trusted from the reply, so it
 always agrees with what is actually on the page.

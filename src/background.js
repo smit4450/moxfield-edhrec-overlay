@@ -65,7 +65,10 @@ async function purgeStaleCacheVersions() {
  * than 24h yields nothing new, so a day is both the useful and the polite TTL.
  * Ranks keep their week, since gameplay data barely moves.
  */
-const PRICE_VERSION = 'v1';
+// v2: the cached value gained `id`, so the panel can show a card image for
+// cards EDHREC does not list for this commander and which therefore arrive
+// with no Scryfall id of their own.
+const PRICE_VERSION = 'v2';
 const PRICE_PREFIX = `price:${PRICE_VERSION}:`;
 const PRICE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -440,7 +443,7 @@ const MAX_PRICE_FALLBACKS = 30;
 const priceKey = (name) => PRICE_PREFIX + name.trim().toLowerCase();
 
 /** Cheapest printing with a USD price, or null if the card has never had one. */
-async function cheapestPrinting(name) {
+async function cheapestPrintingCard(name) {
   const q = encodeURIComponent(`!"${name.replace(/"/g, '')}" unique:prints`);
   try {
     const res = await enqueue(() =>
@@ -449,8 +452,11 @@ async function cheapestPrinting(name) {
     // 404 simply means nothing matched; that is an answer, not a failure.
     if (!res.ok) return null;
     const body = await res.json();
-    const hit = (body.data || []).find((c) => c.prices?.usd != null);
-    return hit ? Number(hit.prices.usd) : null;
+    // Take the cheapest priced printing if there is one, else the first
+    // printing at all - an unpriced card still deserves its image.
+    const hit = (body.data || []).find((c) => c.prices?.usd != null) || (body.data || [])[0];
+    if (!hit) return null;
+    return { usd: hit.prices?.usd != null ? Number(hit.prices.usd) : null, id: hit.id ?? null };
   } catch (err) {
     console.warn('[edhrec-overlay] price fallback failed:', name, err.message);
     return null;
@@ -492,16 +498,20 @@ async function lookupPrices(names) {
       continue;
     }
     for (const name of batch) {
-      const usd = found.get(name.toLowerCase()) ?? found.get(frontFace(name).toLowerCase()) ?? null;
-      if (usd == null) needFallback.push(name);
-      else result[name] = { usd };
+      const hit = found.get(name.toLowerCase()) ?? found.get(frontFace(name).toLowerCase()) ?? null;
+      // A hit with no price still needs the fallback for the price, but its id
+      // is already good enough for the image.
+      if (!hit || hit.usd == null) needFallback.push(name);
+      if (hit) result[name] = hit;
     }
   }
 
   // Pass 2: whatever the default printing could not price.
   for (const name of needFallback.slice(0, MAX_PRICE_FALLBACKS)) {
-    const usd = await cheapestPrinting(frontFace(name));
-    result[name] = usd == null ? null : { usd };
+    const found = await cheapestPrintingCard(frontFace(name));
+    // Keep whichever id we already have if the fallback did not find one.
+    const id = found?.id ?? result[name]?.id ?? null;
+    result[name] = found || id ? { usd: found?.usd ?? null, id } : null;
   }
 
   const patch = {};
@@ -512,21 +522,36 @@ async function lookupPrices(names) {
   return result;
 }
 
-/** Index a price response under full name, each face name, and the front face. */
+/**
+ * Index a price response under full name, each face name, and the front face.
+ *
+ * Carries the Scryfall id alongside the price. The panel builds card images
+ * from that id, and cards EDHREC does not list for the commander reach it with
+ * no id of their own - which is why combo and average rows had no hover
+ * preview. Resolving them by name here fixes it without another request.
+ */
 function indexPrices(cards) {
   const byName = new Map();
-  const put = (key, usd) => {
+  const put = (key, value) => {
     const k = (key || '').trim().toLowerCase();
-    if (k && !byName.has(k)) byName.set(k, usd);
+    if (k && !byName.has(k)) byName.set(k, value);
   };
   const priced = cards.map((c) => ({
     card: c,
-    usd: c.prices?.usd != null ? Number(c.prices.usd) : c.prices?.usd_foil != null ? Number(c.prices.usd_foil) : null,
+    value: {
+      usd:
+        c.prices?.usd != null
+          ? Number(c.prices.usd)
+          : c.prices?.usd_foil != null
+            ? Number(c.prices.usd_foil)
+            : null,
+      id: c.id ?? null,
+    },
   }));
-  for (const { card, usd } of priced) put(card.name, usd);
-  for (const { card, usd } of priced) {
-    for (const face of card.card_faces || []) put(face.name, usd);
-    put(frontFace(String(card.name)), usd);
+  for (const { card, value } of priced) put(card.name, value);
+  for (const { card, value } of priced) {
+    for (const face of card.card_faces || []) put(face.name, value);
+    put(frontFace(String(card.name)), value);
   }
   return byName;
 }

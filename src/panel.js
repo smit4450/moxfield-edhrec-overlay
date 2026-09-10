@@ -313,7 +313,10 @@ globalThis.EdhrecPanel = (() => {
     if (usd != null && usd >= 20) price.classList.add('is-pricey');
     row.append(price);
 
-    const img = imageFor(card.id);
+    // EDHREC supplies an id only for cards it lists for this commander. For
+    // everything else - most combo pieces, and anything the average list runs
+    // that yours does not - the id comes back with the price, resolved by name.
+    const img = imageFor(card.id || prices.get(card.name)?.id);
     if (img) {
       row.addEventListener('mouseenter', () => showImage(row, img, card.name));
       row.addEventListener('mouseleave', hideImage);
