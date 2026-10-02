@@ -156,25 +156,31 @@ try {
   // --- Commander rank -------------------------------------------------------
   // A commander's rank as a CARD is a different, much larger number than its
   // rank as a commander, and the card one is useless on its own deck page.
+  //
+  // Found by the name the page DISPLAYS, asked of the adapter itself (injected
+  // here, since the extension's copy lives in an isolated world). A reskinned
+  // commander shows under a flavor name, so matching og:description's real name
+  // found no badge at all on the Hatsune Miku precon.
   if (edh.commanders?.length) {
-    const cmdBadge = await page.evaluate((cmdName) => {
-      const want = cmdName.split(' and ')[0].trim().toLowerCase();
-      const b = [...document.querySelectorAll('.edhrec-badge')].find(
-        (x) => (x.dataset.cardName || '').split('//')[0].trim().toLowerCase() === want
-      );
-      return b
-        ? { text: b.textContent.trim(), label: b.getAttribute('aria-label') || '' }
-        : null;
-    }, edh.commanders);
-    const rank = cmdBadge ? Number(cmdBadge.text.replace(/[^\d]/g, '')) : null;
+    await page.evaluate(readFileSync(join(root, 'src', 'moxfield-dom.js'), 'utf8'));
+    const cmdBadge = await page.evaluate(() => {
+      const key = (n) => (n || '').split('//')[0].trim().toLowerCase();
+      const shown = globalThis.MoxfieldDom.findCommanderNames().map(key);
+      const b = [...document.querySelectorAll('.edhrec-badge')].find((x) => shown.includes(key(x.dataset.cardName)));
+      return b ? { text: b.textContent.trim(), label: b.getAttribute('aria-label') || '' } : null;
+    });
+    const face = cmdBadge ? Number(cmdBadge.text.replace(/[^\d]/g, '')) : null;
+    const labelled = Number(cmdBadge?.label.match(/Commander rank ([\d,]+)/)?.[1].replace(/,/g, '') ?? NaN);
     check(
       Boolean(cmdBadge) && /Commander rank/.test(cmdBadge.label),
       'commander badge shows its commander rank',
       cmdBadge ? `(${cmdBadge.text}, ${cmdBadge.label.split('.')[1]?.trim()})` : '(no commander badge)'
     );
-    // Sanity: commander ranks are small. A four-figure number here means the
-    // card rank leaked back through.
-    check(rank != null && rank < 2000, 'commander rank is not the card rank', `(#${rank})`);
+    // The face as well as the label: only the label used to be repainted when
+    // EDHREC answered, so a badge painted first kept its card rank on its face.
+    // Matching the label replaces a "< 2000" guess, which any less popular
+    // commander would have failed.
+    check(face === labelled, 'badge face shows the commander rank, not the card rank', `(#${face}; commander rank ${labelled})`);
   }
 
   // --- SPA navigation -------------------------------------------------------

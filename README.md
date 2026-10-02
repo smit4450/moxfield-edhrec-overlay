@@ -134,6 +134,7 @@ that is a different number:
 | Bria, Riptide Rogue | #3,058 | **#240** |
 | Atraxa, Praetors' Voice | — | **#4** |
 | The Ur-Dragon | — | **#2** |
+| Trostani, Selesnya's Voice, shown as *Miku, Song of the People* | #3,154 | **#221** |
 
 Showing the card rank on a commander's own deck page is technically true and practically
 useless. The commander rank comes from `container.json_dict.card.rank` on the commander
@@ -143,6 +144,17 @@ run it as their commander.
 
 Partner and background pairings share one EDHREC page; whichever commander that page
 describes gets the commander rank, and the other falls back to its card rank.
+
+**A reskinned commander needs its real name.** The Hatsune Miku precon's commander
+displays as *Miku, Song of the People*; it is Trostani, Selesnya's Voice. EDHREC answers
+the flavor-name slug too, but titles the page with it, so the badge never matched its own
+commander and kept the card rank. Commander Spellbook does not know flavor names at all,
+so the commander read as missing from every combo it is in. The commander's real name is
+now resolved before anything leaves the page.
+
+The badge **face** is repainted when EDHREC answers, as well as the tooltip. The rank
+lookup and the EDHREC request race, and a commander badge painted first used to keep its
+card rank on its face for good, with only its label corrected.
 
 Lift is the field a rank cannot express. It divides how often a card is played with your
 commander by how often it is played in every deck that could run it, so 1x is neutral.

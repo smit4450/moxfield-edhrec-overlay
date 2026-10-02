@@ -143,6 +143,17 @@ So the rank lookup returns the card's real `name`, `content.js` exposes `canonic
 and **everything that compares or is sent outbound uses the canonical name**. Display
 names are for display only: badge text, badge links, panel row labels.
 
+That includes the **commander's** name, which escaped the rule until a reskinned one
+turned up (the Hatsune Miku precon's Trostani displays as "Miku, Song of the People").
+EDHREC answers flavor-name slugs but titles the page with the flavor name, so nothing
+errors — the commander just never matches, keeps its card rank, and reaches Spellbook
+under a name it does not know. It is resolved before EDHREC is asked, because that
+happens before the first rank lookup has filled `rankCache`.
+
+Moxfield is not even consistent within a deck: text rows show the flavor name, but in the
+visual views an image's `alt` carries the real one. So a bug of this kind shows up in some
+views and not others.
+
 ### EDHREC (`json.edhrec.com`)
 
 Unofficial and undocumented — the project's one fragile dependency. No key, no

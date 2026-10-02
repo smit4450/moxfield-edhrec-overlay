@@ -73,7 +73,9 @@
   function infoFor(name) {
     const base = rankCache.get(name);
     const cmd = edhrec.commanderCard;
-    if (cmd && frontFace(canonicalOf(name)) === frontFace(cmd.name)) {
+    // Either name: EDHREC titles the page with whichever name it was asked for,
+    // and that is the displayed one if resolving the real name ever failed.
+    if (cmd && [name, canonicalOf(name)].some((n) => frontFace(n) === frontFace(cmd.name))) {
       return { ...(base || {}), rank: cmd.rank, isCommander: true, commanderDecks: cmd.numDecks };
     }
     return base;
@@ -178,6 +180,18 @@
     return parts.join('. ');
   }
 
+  /** The badge face: the rank in its tier colour, or a dash. Safe to repaint. */
+  function paintRank(el, info) {
+    el.classList.remove('edhrec-unranked', ...TIERS.map((t) => t.cls));
+    if (!info || info.rank == null) {
+      el.classList.add('edhrec-unranked');
+      el.textContent = '—';
+    } else {
+      el.classList.add(tierFor(info.rank));
+      el.textContent = `#${info.rank.toLocaleString()}`;
+    }
+  }
+
   function buildBadge(name, info, moxfieldFlagsGameChanger = false) {
     const el = document.createElement('a');
     el.className = 'edhrec-badge';
@@ -187,15 +201,11 @@
     el.target = '_blank';
     el.rel = 'noopener noreferrer';
 
-    if (!info || info.rank == null) {
-      el.classList.add('edhrec-unranked');
-      el.textContent = '—';
-    } else {
-      el.classList.add(tierFor(info.rank));
-      el.textContent = `#${info.rank.toLocaleString()}`;
-      // The gold ring is suppressed only where Moxfield is already showing its
-      // own marker on this same row. On every image tile it is the sole indicator.
-      if (info.gameChanger && !moxfieldFlagsGameChanger) el.classList.add('edhrec-game-changer');
+    paintRank(el, info);
+    // The gold ring is suppressed only where Moxfield is already showing its
+    // own marker on this same row. On every image tile it is the sole indicator.
+    if (info?.rank != null && info.gameChanger && !moxfieldFlagsGameChanger) {
+      el.classList.add('edhrec-game-changer');
     }
     // Remembered so a later tooltip repaint keeps making the same choice.
     if (moxfieldFlagsGameChanger) el.dataset.moxGameChanger = '1';
@@ -235,37 +245,65 @@
   let edhrecLoading = false;
 
   function ensureEdhrec() {
-    const commanders = dom.findCommanderNames();
-    const key = commanders.join(' + ');
+    const shown = dom.findCommanderNames();
+    const key = shown.join(' + ');
     if (key === edhrecKey || edhrecLoading) return;
     edhrecLoading = true;
 
-    Promise.resolve(api.runtime.sendMessage({ type: 'lookup-edhrec', commanders }))
-      .then((res) => {
-        if (!res?.ok) return;
-        // Keep the whole list, not just the first: partner and background
-        // pairings have two, and the panel must exclude both.
-        edhrec = { ...res, commander: commanders[0] || '', commanders };
-        edhrecKey = key;
-        lastPanelSig = ''; // new commander: the whole recommendation set changed
-        syncPanel();
-        // Badges are already on the page; only their tooltips need to change.
-        for (const b of document.querySelectorAll('.edhrec-badge')) {
-          const name = b.dataset.cardName;
-          if (!name) continue;
-          const m = tooltipModel(name, infoFor(name), b.dataset.moxGameChanger === '1');
-          b.setAttribute('aria-label', plainSummary(m));
-          // If this badge's tooltip is open right now, refresh it in place.
-          if (tipFor === b) {
-            renderTip(m);
-            positionTip(b);
+    canonicalNames(shown)
+      .then((commanders) =>
+        Promise.resolve(api.runtime.sendMessage({ type: 'lookup-edhrec', commanders })).then((res) => {
+          if (!res?.ok) return;
+          // Keep the whole list, not just the first: partner and background
+          // pairings have two, and the panel must exclude both.
+          edhrec = { ...res, commander: commanders[0] || '', commanders };
+          edhrecKey = key;
+          lastPanelSig = ''; // new commander: the whole recommendation set changed
+          syncPanel();
+          // Badges are already on the page. Their tooltips need the new data, and
+          // the commander's face needs its commander rank: a badge painted before
+          // this answer arrived is still showing the card rank.
+          for (const b of document.querySelectorAll('.edhrec-badge')) {
+            const name = b.dataset.cardName;
+            if (!name) continue;
+            const info = infoFor(name);
+            if (info?.isCommander) paintRank(b, info);
+            const m = tooltipModel(name, info, b.dataset.moxGameChanger === '1');
+            b.setAttribute('aria-label', plainSummary(m));
+            // If this badge's tooltip is open right now, refresh it in place.
+            if (tipFor === b) {
+              renderTip(m);
+              positionTip(b);
+            }
           }
-        }
-      })
+        })
+      )
       .catch((err) => console.warn('[edhrec-overlay] edhrec lookup failed:', err.message))
       .finally(() => {
         edhrecLoading = false;
       });
+  }
+
+  /**
+   * Real names for cards as the page displays them, asking the background about
+   * any not seen yet.
+   *
+   * The commander's names go to EDHREC, to Commander Spellbook and to the
+   * average-deck lookup, so they follow the rule for everything outbound. A
+   * reskinned commander displays as "Miku, Song of the People" for Trostani,
+   * Selesnya's Voice. EDHREC answers that slug too, but names the commander by
+   * it, so the badge never matched it and kept the card rank; Spellbook does not
+   * know the flavor name at all, so the commander read as missing from every
+   * combo it is in. This runs before the first rank lookup has filled
+   * rankCache, hence the lookup of its own.
+   */
+  async function canonicalNames(names) {
+    const unknown = names.filter((n) => !rankCache.has(n));
+    if (unknown.length) {
+      const res = await api.runtime.sendMessage({ type: 'lookup-ranks', names: unknown });
+      if (res?.ok) for (const n of unknown) rankCache.set(n, res.ranks[n] ?? null);
+    }
+    return names.map(canonicalOf);
   }
 
   // ---------------------------------------------------------------------------
@@ -391,9 +429,7 @@
         // swap its commander rank back for its card rank.
         const info = infoFor(name);
         if (badge.isConnected && info?.rank != null && badge.textContent === '—') {
-          badge.classList.remove('edhrec-unranked');
-          badge.classList.add(tierFor(info.rank));
-          badge.textContent = `#${info.rank.toLocaleString()}`;
+          paintRank(badge, info);
           badge.setAttribute(
             'aria-label',
             plainSummary(tooltipModel(name, info, badge.dataset.moxGameChanger === '1'))

@@ -38,6 +38,7 @@ jobs:
       - run: node tools/test-panel-deckswitch.mjs
       - run: node tools/test-lift.mjs
       - run: node tools/test-gamechanger.mjs
+      - run: node tools/test-commander.mjs
 
   contract:
     name: Scryfall / EDHREC contract
