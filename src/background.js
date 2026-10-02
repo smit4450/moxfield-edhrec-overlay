@@ -314,6 +314,10 @@ const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * on its own schedule, and bumping it should not throw away every rank and
  * force a full Scryfall refetch.
  *
+ * v5: each card gained `lift`, EDHREC's replacement for synergy, which the
+ * drawer now ranks by. A v4 entry has none, so for up to a day the Cuts tab
+ * would rank nothing and the default sort would not sort.
+ *
  * v4: the cached value gained `commander` - the commander's own rank, which is
  * a different number from its rank as a card.
  *
@@ -328,7 +332,7 @@ const SALT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * and see the shape check in commanderStats(), which now catches this class of
  * error even when the version is fumbled.
  */
-const EDHREC_VERSION = 'v4';
+const EDHREC_VERSION = 'v5';
 const EDHREC_PREFIX = `edhrec:${EDHREC_VERSION}:`;
 const SALT_KEY = `salt:${EDHREC_VERSION}`;
 
@@ -403,6 +407,7 @@ function indexCommanderPage(page) {
       // A card appears in several lists (a category plus, say, "Top Cards");
       // the stats are identical, so first write wins and we just collect labels.
       if (!entry.id && c.id) entry.id = c.id;
+      if (entry.lift === undefined && typeof c.lift === 'number') entry.lift = c.lift;
       if (entry.synergy === undefined && typeof c.synergy === 'number') entry.synergy = c.synergy;
       if (entry.inclusion === undefined && c.potential_decks > 0) {
         entry.inclusion = c.num_decks / c.potential_decks;
@@ -416,7 +421,33 @@ function indexCommanderPage(page) {
     if (label && cards.length) lists.push({ header: label, cards });
   }
 
+  for (const entry of Object.values(stats)) fillMissingRatio(entry);
+
   return { stats, lists, commander };
+}
+
+/**
+ * Lift and synergy are two readings of the same pair of rates, so either one
+ * can be recovered from the other plus inclusion:
+ *
+ *   inclusion  share of this commander's decks that run the card
+ *   base       share of every deck that could play it
+ *   synergy    inclusion - base   (EDHREC's old figure, centred on 0)
+ *   lift       inclusion / base   (its replacement, centred on 1)
+ *
+ * EDHREC replaced synergy with lift on its site on 2026-10-01 and, for now,
+ * still sends both. It has no reason to keep sending synergy, and the drawer
+ * ranks by lift, so filling in whichever is missing keeps the tooltip, the
+ * sort and the Cuts tab working if either field is dropped. Verified exact
+ * against the live API: lift === inclusion / (inclusion - synergy).
+ */
+function fillMissingRatio(entry) {
+  const inc = entry.inclusion;
+  if (typeof inc !== 'number') return;
+  if (entry.synergy === undefined && entry.lift > 0) entry.synergy = inc - inc / entry.lift;
+  if (entry.lift === undefined && typeof entry.synergy === 'number' && inc - entry.synergy > 0) {
+    entry.lift = inc / (inc - entry.synergy);
+  }
 }
 
 /**

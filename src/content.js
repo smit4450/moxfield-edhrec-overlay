@@ -81,13 +81,22 @@
   const statFor = (name, table) => table[name.toLowerCase()] ?? table[frontFace(name)];
   const pct = (n) => `${(n * 100).toFixed(1)}%`;
 
-  /** Only these list memberships say something a rank does not. */
-  const NOTABLE_LISTS = /high synergy|top cards|game changer|new cards/i;
+  /** As EDHREC prints it ("9.4x lift"), so the two read the same side by side. */
+  const liftText = (n) => `${n.toFixed(1)}x`;
+  /** Neutral when it prints as 1.0x: a red "1.0x" would contradict itself. */
+  const liftTone = (n) => (liftText(n) === '1.0x' ? null : n > 1 ? 'pos' : 'neg');
+
+  /**
+   * Only these list memberships say something a rank does not. EDHREC renamed
+   * "High Synergy Cards" to "High Lift Cards" on 2026-10-01; both are matched so
+   * a page still carrying the old name keeps its chip.
+   */
+  const NOTABLE_LISTS = /high (lift|synergy)|top cards|game changer|new cards/i;
 
   /**
    * Structured description of one card, rendered by the tooltip and flattened
    * for the accessible label. Building a model rather than a string is what
-   * lets a negative synergy be coloured differently from a positive one.
+   * lets a low lift be coloured differently from a high one.
    */
   function tooltipModel(name, info, moxfieldFlagsGameChanger = false) {
     const model = {
@@ -107,14 +116,23 @@
     }
     const stat = statFor(canonicalOf(name), edhrec.stats);
 
+    if (stat && typeof stat.lift === 'number') {
+      // Lift is inclusion-with-this-commander divided by inclusion in every deck
+      // that could play it, so 1x is neutral and the ratio drives the colour.
+      model.rows.push({
+        label: 'Lift',
+        value: liftText(stat.lift),
+        tone: liftTone(stat.lift),
+        sub: 'vs. decks that could play it',
+      });
+    }
     if (stat && typeof stat.synergy === 'number') {
-      // Synergy is inclusion-with-this-commander minus inclusion-everywhere, so
-      // the sign carries the meaning and drives the colour.
+      // The same comparison as a difference rather than a ratio, so the sign
+      // carries the meaning. It favours staples where lift favours niche picks.
       model.rows.push({
         label: 'Synergy',
         value: `${stat.synergy >= 0 ? '+' : ''}${pct(stat.synergy)}`,
         tone: stat.synergy >= 0 ? 'pos' : 'neg',
-        sub: 'vs. decks that could play it',
       });
     }
     if (stat && typeof stat.inclusion === 'number') {

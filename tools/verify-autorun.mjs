@@ -131,9 +131,10 @@ try {
     const desc = document.querySelector('meta[property="og:description"]')?.content || '';
     return {
       commanders: (desc.match(/featuring\s+(.+?)\s+by\s/i)?.[1] ?? '').trim() || null,
+      withLift: titles.filter((t) => /Lift [\d.]+x/.test(t)).length,
       withSynergy: titles.filter((t) => /Synergy [+-]/.test(t)).length,
       withInclusion: titles.filter((t) => /Played in [\d.]+%/.test(t)).length,
-      withList: titles.filter((t) => /High Synergy Cards|Top Cards|New Cards|Game Changer/.test(t)).length,
+      withList: titles.filter((t) => /High (Lift|Synergy) Cards|Top Cards|New Cards|Game Changer/.test(t)).length,
       withSalt: titles.filter((t) => /Salt \d/.test(t)).length,
       total: titles.length,
       richest: titles.slice().sort((a, b) => b.split('. ').length - a.split('. ').length)[0] || '',
@@ -142,6 +143,7 @@ try {
 
   console.log(`\ncommander detected: ${JSON.stringify(edh.commanders)}`);
   if (edh.commanders?.length) {
+    check(edh.withLift > 0, 'lift in tooltips', `(${edh.withLift}/${edh.total})`);
     check(edh.withSynergy > 0, 'synergy % in tooltips', `(${edh.withSynergy}/${edh.total})`);
     check(edh.withInclusion > 0, 'inclusion % in tooltips', `(${edh.withInclusion}/${edh.total})`);
     console.log(`   list tags ${edh.withList}, salt ${edh.withSalt}`);
@@ -258,7 +260,12 @@ try {
     // already runs everything in it, which is exactly what the Add tab is for.
     // Pinning "High Synergy Cards is first" made this fail as a side effect of
     // the deck improving.
-    const CURATED = ['High Synergy Cards', 'Top Cards', 'Game Changers', 'New Cards'];
+    //
+    // This cannot catch a curated list being RENAMED: the panel then files it
+    // with the bulk lists, after the curated ones, so the ordering still holds.
+    // That is how "High Lift Cards" went unnoticed; tools/test-lift.mjs covers
+    // it deterministically.
+    const CURATED = ['High Lift Cards', 'High Synergy Cards', 'Top Cards', 'Game Changers', 'New Cards'];
     const kinds = panel.sections.map((t) => (CURATED.includes(t) ? 'curated' : 'bulk'));
     const firstBulk = kinds.indexOf('bulk');
     const lastCurated = kinds.lastIndexOf('curated');
@@ -291,7 +298,7 @@ try {
         title: s.querySelector('.edhrec-panel-title')?.textContent,
         rows: [...s.querySelectorAll('.edhrec-panel-row')].map((r) => ({
           name: r.querySelector('.edhrec-panel-name')?.textContent,
-          syn: r.querySelector('.edhrec-panel-syn')?.textContent,
+          lift: r.querySelector('.edhrec-panel-lift')?.textContent,
         })),
       }));
       const deck = new Set(
@@ -304,8 +311,8 @@ try {
         heading: document.querySelector('.edhrec-panel-h1')?.textContent,
         salt: document.querySelector('.edhrec-panel-salt')?.innerText.replace(/\n/g, ' ') || null,
         sections: sections.map((s) => s.title),
-        synOrder: (sections.find((s) => s.title === 'Lowest synergy')?.rows || [])
-          .map((r) => parseFloat(r.syn))
+        liftOrder: (sections.find((s) => s.title === 'Lowest lift')?.rows || [])
+          .map((r) => parseFloat(r.lift))
           .filter((n) => !Number.isNaN(n)),
         // Every cut candidate must actually BE in the deck - the mirror of the
         // Add tab's invariant.
@@ -319,8 +326,8 @@ try {
       'every cut candidate is actually in the deck',
       cuts.notInDeck.length ? `(${cuts.notInDeck.slice(0, 3).join(', ')})` : ''
     );
-    const ascending = cuts.synOrder.every((v, i, a) => i === 0 || a[i - 1] <= v);
-    check(ascending && cuts.synOrder.length > 1, 'cuts sorted worst-synergy first', `(${cuts.synOrder.slice(0, 4).join(', ')})`);
+    const ascending = cuts.liftOrder.every((v, i, a) => i === 0 || a[i - 1] <= v);
+    check(ascending && cuts.liftOrder.length > 1, 'cuts sorted lowest-lift first', `(${cuts.liftOrder.slice(0, 4).join(', ')})`);
     check(Boolean(cuts.salt), 'deck salt total shown', cuts.salt ? `(${cuts.salt.slice(0, 44)})` : '');
     // You cannot cut your commander, so it must never be offered as a cut.
     const cmdName = (edh.commanders || '').split(' and ')[0].trim().toLowerCase();
@@ -364,12 +371,12 @@ try {
     // arrive with no Scryfall id and used to get no hover preview at all.
     await page.waitForTimeout(4000); // prices carry the id, and arrive late
     // Must be a row EDHREC does NOT list for this commander, i.e. one with no
-    // synergy figure. Those are the rows that had no id and so no preview;
+    // lift figure. Those are the rows that had no id and so no preview;
     // hovering any old row tests nothing, because the listed ones always
     // worked.
     const rowSplit = await page.evaluate(() => {
       const rows = [...document.querySelectorAll('.edhrec-panel-combo .edhrec-panel-row')];
-      const unlisted = rows.filter((r) => !r.querySelector('.edhrec-panel-syn'));
+      const unlisted = rows.filter((r) => !r.querySelector('.edhrec-panel-lift'));
       // Mark one so the hover below targets it unambiguously.
       unlisted[0]?.setAttribute('data-test-unlisted', '1');
       return { rows: rows.length, unlisted: unlisted.length, name: unlisted[0]?.querySelector('.edhrec-panel-name')?.textContent };

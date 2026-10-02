@@ -66,6 +66,17 @@ for (const v of ['v1', 'v2', 'v3']) {
     value: { 'sol ring': { name: 'Sol Ring', synergy: 0.017 } },
   });
 }
+// v4 had the full shape but no lift, so the shape check alone would pass it.
+// Only the version bump keeps it from being served to a drawer that now ranks
+// by lift - and would then rank nothing.
+store.set('edhrec:v4:bria-riptide-rogue', {
+  ts: Date.now(),
+  value: {
+    stats: { 'sol ring': { name: 'Sol Ring', synergy: 0.017, lists: [] } },
+    lists: [{ header: 'High Synergy Cards', cards: ['Sol Ring'] }],
+    commander: null,
+  },
+});
 
 const { lookup, edhrecForDeck, lookupCombos } = await (0, eval)(
   `(async () => { ${src}\n; return { lookup, edhrecForDeck, lookupCombos }; })()`
@@ -134,6 +145,21 @@ if (!shapeOk) failures++;
 console.log(
   `${shapeOk ? '  ok  ' : ' FAIL '} stale-shaped cache is refetched, not served  ` +
     `(${Object.keys(edh.stats).length} stats, ${edh.lists.length} lists)`
+);
+
+// --- lift --------------------------------------------------------------------
+// EDHREC replaced synergy with lift on 2026-10-01, and the drawer ranks by it.
+// The background derives whichever of the two EDHREC stops sending from the
+// other, which is only right while lift === inclusion / (inclusion - synergy).
+// If EDHREC redefines lift - smoothing it, say - this is what notices.
+const withLift = Object.values(edh.stats).filter((s) => typeof s.lift === 'number');
+const withBoth = withLift.filter((s) => typeof s.synergy === 'number' && typeof s.inclusion === 'number');
+const disagree = withBoth.filter((s) => Math.abs(s.lift - s.inclusion / (s.inclusion - s.synergy)) > 1e-6 * s.lift);
+const liftOk = withLift.length > 50 && disagree.length === 0;
+if (!liftOk) failures++;
+console.log(
+  `${liftOk ? '  ok  ' : ' FAIL '} lift present and consistent with synergy  ` +
+    `(${withLift.length} with lift, ${withBoth.length} with both, ${disagree.length} disagree)`
 );
 
 // --- reskinned cards must not be reported as cards you need ----------------

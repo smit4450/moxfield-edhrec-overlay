@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "web-ext run --start-url https://moxfield.com/decks/ri44zg2DG0iBE2jUNXEdPg",
     "test": "node tools/test-lookup.mjs",
-    "test:panel": "node tools/test-panel-deckswitch.mjs",
+    "test:panel": "node tools/test-panel-deckswitch.mjs && node tools/test-lift.mjs",
     "verify": "node tools/verify-live.mjs",
     "lint": "web-ext lint --self-hosted",
     "build": "web-ext build --overwrite-dest",

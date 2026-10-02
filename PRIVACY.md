@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Moxfield EDHREC Overlay** · last updated 2026-09-10
+**Moxfield EDHREC Overlay** · last updated 2026-10-01
 
 ## The short version
 
@@ -17,7 +17,7 @@ them to:
 | Service | What is sent | Why |
 |---|---|---|
 | [Scryfall](https://scryfall.com/docs/api) | card names | EDHREC rank, prices, card images |
-| [EDHREC](https://edhrec.com) | the deck's commander name | synergy, inclusion rates, recommendations, salt |
+| [EDHREC](https://edhrec.com) | the deck's commander name | lift, synergy, inclusion rates, recommendations, salt |
 | [Commander Spellbook](https://commanderspellbook.com) | the deck's card list | combos in the deck, and combos one card away |
 
 Card images are loaded directly from Scryfall's image servers
@@ -67,7 +67,7 @@ extension sends them card names only, with no information about who is asking.
 | `storage` | The local cache described above |
 | `moxfield.com` | Read card names from the page and draw the overlay |
 | `api.scryfall.com` | Look up ranks and prices |
-| `json.edhrec.com` | Look up synergy and recommendations |
+| `json.edhrec.com` | Look up lift, synergy and recommendations |
 | `backend.commanderspellbook.com` | Look up combos |
 
 The manifest declares `websiteContent` under Firefox's data-collection disclosure,

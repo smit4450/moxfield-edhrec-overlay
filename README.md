@@ -20,20 +20,21 @@ The badge face is a rank, from Scryfall. Everything else lives in a styled toolt
 ┌──────────────────────────────────────┐
 │ Ral, Crackling Wit             #2,209│
 ├──────────────────────────────────────┤
-│ Synergy                        +58.8%│   ← green; red when negative
+│ Lift                             6.2x│   ← green above 1x; red below
 │ vs. decks that could play it         │
+│ Synergy                        +58.8%│
 │ Played in                       70.0%│
 │ ████████████████░░░░░░░              │
 │ 7,013 of 10,014 decks                │
-│ ( High Synergy Cards )               │
+│ ( High Lift Cards )                  │
 ├──────────────────────────────────────┤
 │ Bria, Riptide Rogue · click to open  │
 └──────────────────────────────────────┘
 ```
 
 It replaces the native `title` tooltip, which is OS-rendered: about a second before it
-appears, no structure, and no way to make a negative synergy read differently from a
-positive one. One shared element lives on `<body>` and is repositioned per hover —
+appears, no structure, and no way to make a low lift read differently from a high
+one. One shared element lives on `<body>` and is repositioned per hover —
 per-badge listeners would mean thousands being attached and torn down as React
 reconciles the deck, so the tooltip delegates from the document and the badges stay
 inert. It is `pointer-events: none` so it can never swallow a click meant for a card,
@@ -96,9 +97,10 @@ one request per **deck** buys all of it:
 
 | | |
 |---|---|
-| Synergy | inclusion-with-this-commander minus inclusion-everywhere |
+| Lift | inclusion-with-this-commander divided by inclusion in every deck that could play it |
+| Synergy | the same comparison as a difference; EDHREC's figure until 2026-10-01 |
 | Inclusion | `In 16.7% of those decks (1,674 of 10,014)` |
-| List tags | High Synergy, Top Cards, Game Changers, New Cards |
+| List tags | High Lift, Top Cards, Game Changers, New Cards |
 | Salt | from the global top-100 list |
 
 ### Flavor names
@@ -142,9 +144,18 @@ run it as their commander.
 Partner and background pairings share one EDHREC page; whichever commander that page
 describes gets the commander rank, and the other falls back to its card rank.
 
-Synergy is the field a rank cannot express. Arcane Signet is **+2.9%** with Alania and
-**−0.2%** with Atraxa: played constantly, but it says nothing about either deck. A card
-at +71% is one that basically only exists for that commander.
+Lift is the field a rank cannot express. It divides how often a card is played with your
+commander by how often it is played in every deck that could run it, so 1x is neutral.
+Sol Ring is **1.0x** with Xyris, the Writhing Storm: in 82% of those decks, and saying
+nothing about any of them. Orcrist, Goblin-cleaver is **9.4x**: in only 5.7% of Xyris
+decks, but over nine times as often as anywhere else.
+
+EDHREC [replaced synergy with lift][lift] on 2026-10-01. Synergy is the same comparison as
+a difference (Orcrist is +5.1%), so it is largest for cards that are common everywhere,
+and staples crowd both ends of a synergy ranking. The tooltip shows both; the drawer ranks
+by lift. EDHREC still sends both figures, and the background derives whichever one it
+stops sending from the other, since lift = inclusion ÷ (inclusion − synergy) — an
+identity `npm test` checks against the live API.
 
 The commander is found from the `Commander (N)` group heading, falling back to the
 server-rendered `og:description` (*"A Commander deck featuring Bria, Riptide Rogue
@@ -155,8 +166,8 @@ including possessives, leading articles and a double-faced commander.
 edhrec.com's own frontend calls — no key, no Cloudflare, but undocumented and free to
 change, unlike Scryfall. So every EDHREC failure is swallowed, the fetch is never awaited
 by the badge render, and the overlay degrades to rank-only. Cards EDHREC does not list
-for your commander simply show no synergy line: 49 of 70 badges carried one on the deck
-last measured.
+for your commander simply show no lift or synergy line: 49 of 70 badges carried one on
+the deck last measured.
 
 ### Recommendations panel
 
@@ -170,14 +181,19 @@ we own is untouched by all of it and behaves identically in all six view styles.
 reasoning as the tooltip.
 
 **Curated first, bulk collapsed.** EDHREC returns ~265 recommendations against a 67-card
-deck, so ~216 are "missing" — unusable as a flat list. High Synergy, Top Cards, Game
+deck, so ~216 are "missing" — unusable as a flat list. High Lift, Top Cards, Game
 Changers and New Cards (14 rows on the deck measured) are open by default; the type lists
 sit behind *Show all 41*. The header states `Showing 14 of 216` so the collapsed ones are
 not a mystery.
 
-**Sorted by synergy, not rank**, for the reason the whole EDHREC section exists: rank says
-"popular everywhere", synergy says "belongs in this deck". *Played in* and *Price* are the
-alternates; unpriced cards sort last rather than masquerading as free.
+Curated lists are matched by exact header, so a rename demotes one silently. When EDHREC
+renamed *High Synergy Cards* to *High Lift Cards*, the drawer's most useful section
+collapsed to zero rows and dropped below the other three, with no error anywhere.
+`tools/test-lift.mjs` now pins both names.
+
+**Sorted by lift, not rank**, for the reason the whole EDHREC section exists: rank says
+"popular everywhere", lift says "belongs in this deck". *Synergy*, *Played in* and *Price*
+are the alternates; unpriced cards sort last rather than masquerading as free.
 
 **Prices, because "should I add this" is a budget question.** Each row shows its USD
 price in a right-hand column, and the footer totals the selection — *Copy 3 as list ·
@@ -195,14 +211,14 @@ Prices run over seven bands, because card prices span four orders of magnitude a
 | dim | slate | neutral | amber | orange | red | red pill |
 
 The ramp runs dim → neutral → warm → hot rather than green → red: green already means
-positive synergy one column to the left, and a cheap card should recede rather than
+a high lift one column to the left, and a cheap card should recede rather than
 compete for attention. The top band gets a tinted pill because two shades of red at
 different weights were not separable at a glance.
 
 ### Cuts: the deck, worst first
 
 The drawer has two tabs. **Add** is the recommendations above; **Cuts** is your own deck
-sorted worst-first, with rank, synergy, salt and price on each row.
+sorted worst-first, with rank, lift, salt and price on each row.
 
 This answers Moxfield's most-requested EDHREC feature —
 [sort cards by EDHREC rank][nolt706], **53 votes, open three years** — whose author
@@ -216,11 +232,16 @@ partner or background pairing.
 
 Two sections, deliberately not merged:
 
-- **Lowest synergy** — played least often with your commander relative to everywhere else.
+- **Lowest lift** — played least often with your commander, relative to every deck that
+  could play it.
 - **Not in EDHREC's lists** — EDHREC does not list these for this commander at all.
 
 "Nobody plays this with your commander" is a different statement from "this has low
-synergy", and conflating them buries every pet card in with the genuine duds.
+lift", and conflating them buries every pet card in with the genuine duds.
+
+Ranked by lift rather than synergy because synergy is a difference: the biggest gaps
+belong to staples, whose base rates are largest, so they would top the list. A staple
+played as often here as anywhere sits at 1.0x however popular it is.
 
 The header also totals **deck salt**, which is
 [the second-most-requested EDHREC feature][nolt304] (43 votes): *"a salt sum calculator
@@ -230,7 +251,7 @@ pool would be worse than showing none.
 
 ### Combos, via Commander Spellbook
 
-The **Combos** tab answers the question rank and synergy cannot: *what does this card
+The **Combos** tab answers the question rank and lift cannot: *what does this card
 turn on?*
 
 [Commander Spellbook][spellbook] is open, needs no key, and takes
@@ -300,7 +321,7 @@ the id-based approach had a second failure mode on top of the wrong-printing one
 action is checkboxes plus *Copy as list*, which produces `1 Card Name` lines to paste into
 Moxfield's own bulk import.
 
-Rows show synergy, inclusion and a bar, and hovering one previews the card — the EDHREC
+Rows show lift, inclusion and a bar, and hovering one previews the card — the EDHREC
 cardview `id` turns out to be a **Scryfall card id**, so images come straight from
 `cards.scryfall.io` with no extra API call. Moxfield sets no `img-src` CSP, so they load
 directly; this was checked before building rather than after.
@@ -612,7 +633,7 @@ same-host `/cards/<slug>` path with no image extension.
   grid tile that already carries its own badge, and for double-faced cards it holds two
   images whose alts are just `"Front"` and `"Back"`. The preview is no longer skipped —
   it has its own live path — but the sample hand still is.
-- **Rank only, not full EDHREC data.** Synergy %, per-commander inclusion rate, and salt
+- **Rank only, not full EDHREC data.** Lift, synergy, per-commander inclusion rate, and salt
   score are *not* in Scryfall. They live behind `json.edhrec.com/pages`, which is
   undocumented, unofficial, keyless, Cloudflare-fronted, and can break without notice.
 - **Unrecognized names show `—`.** Tokens and bad reads get a negative cache entry so
@@ -628,7 +649,7 @@ same-host `/cards/<slug>` path with no image extension.
       build it natively
 - [ ] Optional bundled rank map built from [Scryfall bulk data][bulk] for instant,
       zero-network rendering (`oracle_id → edhrec_rank` is only a few hundred KB)
-- [x] Per-commander synergy, inclusion, list tags and salt via `json.edhrec.com`
+- [x] Per-commander lift, synergy, inclusion, list tags and salt via `json.edhrec.com`
 - [x] Show EDHREC recommendations not yet in the deck
 - [x] Cuts tab: the deck sorted worst-first, plus a deck salt total
 - [x] Compare against EDHREC's average decklist ([31 votes](https://moxfield.nolt.io/466))
@@ -660,6 +681,7 @@ Not produced by or endorsed by Wizards of the Coast, Moxfield, EDHREC, or Scryfa
 [nolt706]: https://moxfield.nolt.io/706
 [nolt304]: https://moxfield.nolt.io/304
 [nolt466]: https://moxfield.nolt.io/466
+[lift]: https://edhrec.com/articles/changelog-replacing-synergy-with-lift-on-edhrecs-card-pages
 [spellbook]: https://commanderspellbook.com/
 [cards]: https://scryfall.com/docs/api/cards
 [limits]: https://scryfall.com/docs/api/rate-limits

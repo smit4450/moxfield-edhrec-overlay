@@ -12,8 +12,8 @@ stops applying.
 | | |
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
-| `npm run test:panel` | Panel unit tests with a stubbed messenger. Deterministic, headless, no network. |
-| `npm run verify:autorun` | Loads the real built extension in a browser and checks 30 behaviours end to end. |
+| `npm run test:panel` | Panel and tooltip unit tests with a stubbed messenger. Deterministic, headless, no network. |
+| `npm run verify:autorun` | Loads the real built extension in a browser and checks 31 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
 | `npm run dev` | Launches Firefox with the extension loaded on a deck page. |
@@ -132,7 +132,7 @@ shipped green.
 
 Comparing display names against those services makes a card you own look absent, in
 every view at once: it stays in Add, drops into "not in EDHREC's lists" under Cuts,
-reads as a difference from the average, loses its synergy tooltip, and — the visible
+reads as a difference from the average, loses its lift and synergy, and — the visible
 symptom — gets reported as a combo piece you still need. Spellbook's card database does
 not know flavor names at all; a lookup returns no match.
 
@@ -146,7 +146,17 @@ Unofficial and undocumented — the project's one fragile dependency. No key, no
 Cloudflare, but free to change. Every failure is swallowed and the overlay degrades to
 rank-only. Never `await` it on the badge-render path.
 
-- One request per **deck** buys synergy, inclusion and list tags for ~270 cards.
+- One request per **deck** buys lift, synergy, inclusion and list tags for ~270 cards.
+- **EDHREC renames things without notice, and nothing errors.** On 2026-10-01 it
+  replaced synergy with lift and renamed "High Synergy Cards" to "High Lift Cards". The
+  drawer matches curated lists by exact header, so its most useful section silently
+  collapsed to zero rows. List names live in `CURATED` (`panel.js`), `NOTABLE_LISTS`
+  (`content.js`) and `verify-autorun.mjs`'s own copy — change all three, and extend
+  `tools/test-lift.mjs`.
+- **Lift = inclusion ÷ (inclusion − synergy).** The background derives whichever figure
+  EDHREC stops sending from the other. `npm test` checks the identity against the live
+  API, so a redefined lift fails the weekly contract run instead of quietly skewing
+  every derived number.
 - **A commander's rank is not its rank as a card.** `container.json_dict.card.rank` is
   the commander rank (Bria #240); Scryfall's `edhrec_rank` is the card rank (#3,058).
   Use `infoFor()`, which is the single place that decides.

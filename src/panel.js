@@ -18,11 +18,16 @@ globalThis.EdhrecPanel = (() => {
 
   /**
    * EDHREC returns ~265 recommendations against a ~67-card deck, so ~200 are
-   * "missing" — far too many to dump in a list. These four are the curated
-   * ones and carry most of the value; everything else is a bulk type list that
-   * stays collapsed behind a "show all".
+   * "missing" — far too many to dump in a list. These four lists are the
+   * curated ones and carry most of the value; everything else is a bulk type
+   * list that stays collapsed behind a "show all".
+   *
+   * Matched by exact header, so a rename demotes a list without any error:
+   * EDHREC renamed "High Synergy Cards" to "High Lift Cards" on 2026-10-01, and
+   * until both were listed here the most useful section rendered collapsed,
+   * below the other three. The old name stays for any page that still has it.
    */
-  const CURATED = ['High Synergy Cards', 'Top Cards', 'Game Changers', 'New Cards'];
+  const CURATED = ['High Lift Cards', 'High Synergy Cards', 'Top Cards', 'Game Changers', 'New Cards'];
 
   const PREVIEW_ROWS = 8; // rows shown before a bulk section is expanded
 
@@ -59,7 +64,7 @@ globalThis.EdhrecPanel = (() => {
   let pricesPending = false;
   let root = null;
   let open = false;
-  let sortBy = 'synergy';
+  let sortBy = 'lift';
   const expanded = new Set();
   const picked = new Set();
 
@@ -72,6 +77,9 @@ globalThis.EdhrecPanel = (() => {
   };
 
   const pct = (n) => `${(n * 100).toFixed(1)}%`;
+  /** As EDHREC prints it, and neutral at 1.0x — the same rules as the tooltip. */
+  const liftText = (n) => `${n.toFixed(1)}x`;
+  const liftTone = (n) => (liftText(n) === '1.0x' ? null : n > 1 ? 'pos' : 'neg');
 
   /** Foil-only cards have a null `usd`, so fall back rather than show nothing. */
   const usdOf = (p) => (p ? (p.usd ?? p.foil ?? null) : null);
@@ -84,7 +92,7 @@ globalThis.EdhrecPanel = (() => {
    * pocket change, cheap, a real pick, an investment, and so on up.
    *
    * The ramp deliberately runs dim -> neutral -> warm -> hot rather than
-   * green -> red: green already means positive synergy one column to the left,
+   * green -> red: green already means a high lift one column to the left,
    * and a cheap card should recede rather than announce itself.
    */
   const PRICE_BANDS = [1, 5, 20, 50, 100, 500];
@@ -120,8 +128,13 @@ globalThis.EdhrecPanel = (() => {
    *
    * Cards EDHREC does not list for this commander are separated out rather
    * than sorted to the bottom: "nobody plays this with your commander" is a
-   * different statement from "this has low synergy", and conflating them would
+   * different statement from "this has low lift", and conflating them would
    * bury every pet card in with the genuine duds.
+   *
+   * Ranked by lift rather than synergy. Synergy is a difference, so the biggest
+   * gaps belong to staples, whose base rates are largest; lift is a ratio, so
+   * it asks how much rarer a card is here, and a staple played as often here as
+   * anywhere sits at 1.0x however popular it is.
    */
   function cutCandidates() {
     const rated = [];
@@ -130,10 +143,10 @@ globalThis.EdhrecPanel = (() => {
     for (const card of withoutCommanders(state.deckCards)) {
       const stat = state.stats[canonOf(card)] ?? state.stats[(card.canonical || card.name).toLowerCase()];
       const merged = { ...card, ...(stat || {}) };
-      if (stat && typeof stat.synergy === 'number') rated.push(merged);
+      if (stat && typeof stat.lift === 'number') rated.push(merged);
       else unlisted.push(merged);
     }
-    rated.sort((a, b) => a.synergy - b.synergy);
+    rated.sort((a, b) => a.lift - b.lift);
     unlisted.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0));
     return { rated, unlisted };
   }
@@ -274,13 +287,14 @@ globalThis.EdhrecPanel = (() => {
             const pb = usdOf(prices.get(b.name));
             return (pa ?? Infinity) - (pb ?? Infinity);
           }
-          return (b.synergy ?? -Infinity) - (a.synergy ?? -Infinity);
+          if (sortBy === 'synergy') return (b.synergy ?? -Infinity) - (a.synergy ?? -Infinity);
+          return (b.lift ?? -Infinity) - (a.lift ?? -Infinity);
         });
       if (cards.length) out.push({ header: list.header, cards, curated: CURATED.includes(list.header) });
     }
     // Curated lists first, in CURATED order rather than EDHREC's own. EDHREC
     // leads with "New Cards", but a card being new says nothing about whether
-    // it belongs here; High Synergy is the reason to open the panel at all.
+    // it belongs here; High Lift is the reason to open the panel at all.
     // Sort is stable, so the bulk type lists keep EDHREC's ordering.
     const rank = (s) => (s.curated ? CURATED.indexOf(s.header) : CURATED.length);
     return out.sort((a, b) => rank(a) - rank(b));
@@ -304,9 +318,9 @@ globalThis.EdhrecPanel = (() => {
     main.append(el('div', 'edhrec-panel-name', card.name));
 
     const meta = el('div', 'edhrec-panel-meta');
-    if (typeof card.synergy === 'number') {
-      const tone = card.synergy >= 0 ? 'pos' : 'neg';
-      meta.append(el('span', `edhrec-panel-syn edhrec-tip-${tone}`, `${card.synergy >= 0 ? '+' : ''}${pct(card.synergy)}`));
+    if (typeof card.lift === 'number') {
+      const tone = liftTone(card.lift);
+      meta.append(el('span', `edhrec-panel-lift${tone ? ` edhrec-tip-${tone}` : ''}`, liftText(card.lift)));
     }
     if (typeof card.inclusion === 'number') {
       meta.append(el('span', 'edhrec-panel-inc', pct(card.inclusion)));
@@ -474,6 +488,7 @@ globalThis.EdhrecPanel = (() => {
 
     const sort = el('div', 'edhrec-panel-sort');
     for (const [key, label] of [
+      ['lift', 'Lift'],
       ['synergy', 'Synergy'],
       ['inclusion', 'Played in'],
       ['price', 'Price'],
@@ -527,7 +542,11 @@ globalThis.EdhrecPanel = (() => {
     const salty = new Map(hits.map((h) => [h.name, h.salt]));
     const withSalt = (c) => (salty.has(c.name) ? { ...c, salt: salty.get(c.name) } : c);
 
-    sec('Lowest synergy', rated.slice(0, 15).map(withSalt), 'Played least often with your commander relative to everywhere else.');
+    sec(
+      'Lowest lift',
+      rated.slice(0, 15).map(withSalt),
+      'Played least often with your commander, relative to every deck that could play it.'
+    );
     sec(
       'Not in EDHREC’s lists',
       unlisted.slice(0, 15).map(withSalt),

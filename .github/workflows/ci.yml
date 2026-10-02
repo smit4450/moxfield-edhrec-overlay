@@ -24,10 +24,10 @@ jobs:
       - run: npx --yes web-ext@latest lint --source-dir . --self-hosted
 
   panel:
-    name: Panel unit tests
+    name: Panel and tooltip unit tests
     runs-on: ubuntu-latest
-    # Safe to run on every push: this one stubs the messenger and never touches
-    # Moxfield or any third-party API, so it is deterministic and headless.
+    # Safe to run on every push: these stub the messenger and never touch
+    # Moxfield or any third-party API, so they are deterministic and headless.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,6 +36,7 @@ jobs:
       - run: npm i --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: node tools/test-panel-deckswitch.mjs
+      - run: node tools/test-lift.mjs
 
   contract:
     name: Scryfall / EDHREC contract
