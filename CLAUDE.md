@@ -199,6 +199,13 @@ Signing is mandatory even for private use. Credentials go in **`~/.web-ext-confi
 — the home directory, dot-prefixed. The repo is public and the working-directory
 `web-ext-config.cjs` is tracked; the two differ only by a leading dot.
 
+**web-ext must be 9 or newer.** Node 24 gives an imported `.cjs` file an extra
+`'module.exports'` named export, and web-ext 8 reads every export as an option. So every
+command — `lint`, `build`, `run`, `sign` — dies at startup with *The config option
+"module.exports" must be specified in camel case*, before it looks at the extension at
+all. web-ext 9.0.0 drops that key. Keep both configs `.cjs` (or `.mjs`): 9.0.0 also
+stopped accepting `.js`.
+
 Bump `version` in `manifest.json` before every re-sign — AMO rejects a version it has
 seen. Unlisted add-ons do not auto-update without an `update_url`.
 
