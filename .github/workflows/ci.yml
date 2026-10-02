@@ -37,6 +37,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tools/test-panel-deckswitch.mjs
       - run: node tools/test-lift.mjs
+      - run: node tools/test-gamechanger.mjs
 
   contract:
     name: Scryfall / EDHREC contract

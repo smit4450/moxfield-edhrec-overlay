@@ -68,6 +68,12 @@ globalThis.MoxfieldDom = (() => {
    * `companion-container cursor-pointer` tile wrapper, not an icon - and
    * matching on the id alone wrongly suppressed our ring in exactly the views
    * that need it.
+   *
+   * And it is judged per host, never per card. In the visual views the
+   * sideboard stays a text list, so a card in both boards - Chrome Mox, say -
+   * shows Moxfield's icon on its sideboard row and nothing on its mainboard
+   * tile. Matching by card id let that row silence the tile, leaving the one
+   * view where our ring is the only marker with no marker at all.
    */
   const BRACKET_MARK = '.fa-gauge[id*="-brackets-"]';
 
@@ -86,25 +92,16 @@ globalThis.MoxfieldDom = (() => {
    *   live   re-derived every pass instead of being marked done
    */
   function findTargets(root = document) {
-    const flagged = moxfieldFlaggedCardIds(root);
-    const mark = (t) => ({ ...t, moxfieldFlagsGameChanger: flagged.has(cardIdOf(t.host)) });
+    const mark = (t) => ({ ...t, moxfieldFlagsGameChanger: showsMoxfieldMark(t.host) });
     return [...imageTargets(root), ...rowTargets(root), ...previewTargets(root)].map(mark);
   }
 
-  /** The card id an element's own id ends with, if any. */
-  function cardIdOf(el) {
-    return el?.id?.match(CARD_ID_SUFFIX)?.[1] ?? null;
-  }
-
-  /** Card ids Moxfield is already showing its own Game Changer icon for. */
-  function moxfieldFlaggedCardIds(root = document) {
-    const ids = new Set();
-    for (const el of root.querySelectorAll(BRACKET_MARK)) {
-      if (!el.offsetParent) continue; // hidden at this width; ours should show
-      const id = cardIdOf(el);
-      if (id) ids.add(id);
+  /** Whether Moxfield is showing its own Game Changer icon on this very host. */
+  function showsMoxfieldMark(host) {
+    for (const el of host.querySelectorAll(BRACKET_MARK)) {
+      if (el.offsetParent) return true; // hidden at this width means ours should show
     }
-    return ids;
+    return false;
   }
 
   /** Card images, in whichever grid layout this view uses. */

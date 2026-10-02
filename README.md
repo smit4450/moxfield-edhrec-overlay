@@ -350,8 +350,15 @@ One trap worth knowing: matching the marker by its id pattern alone is wrong. Vi
 views carry a *different* element sharing the same `-brackets-<cardId>` id — a
 `companion-container cursor-pointer` tile wrapper, not an icon — and matching on the id
 suppressed our ring in precisely the views that needed it. The selector requires the
-`.fa-gauge` class for that reason. `verify-autorun.mjs` asserts the two markers are
-never both present.
+`.fa-gauge` class for that reason.
+
+And it is judged per host, never per card. In the visual views the **sideboard stays a
+text list**, so a card in both boards shows Moxfield's icon on its sideboard row and
+nothing on its mainboard tile. Suppressing by card id let that row silence the tile:
+Chrome Mox went unmarked in exactly the view where our ring is the only marker.
+`verify-autorun.mjs` asserts, host by host, that the two markers never share one and that
+no ring is withheld where Moxfield's icon is not showing; `tools/test-gamechanger.mjs`
+pins the sideboard case without needing a live deck that has one.
 
 ### The hover preview
 

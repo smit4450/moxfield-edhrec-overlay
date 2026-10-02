@@ -12,8 +12,8 @@ stops applying.
 | | |
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
-| `npm run test:panel` | Panel and tooltip unit tests with a stubbed messenger. Deterministic, headless, no network. |
-| `npm run verify:autorun` | Loads the real built extension in a browser and checks 31 behaviours end to end. |
+| `npm run test:panel` | Panel, tooltip and badge unit tests with a stubbed messenger. Deterministic, headless, no network. |
+| `npm run verify:autorun` | Loads the real built extension in a browser and checks 32 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
 | `npm run dev` | Launches Firefox with the extension loaded on a deck page. |
@@ -100,9 +100,12 @@ shipped green.
 - **The hover preview swaps cards in place** rather than remounting, so it needs the
   live path and an `attributes` observer. It gets a fast path that skips the debounce;
   routing it through the normal scan made it visibly lag the pointer.
-- **Moxfield marks Game Changers itself** — but only in the text views, with a
+- **Moxfield marks Game Changers itself** — but only on text rows, with a
   `.fa-gauge[id*="-brackets-"]` icon. Ours fills the gap in the visual views. Match on
   the icon class too: visual views carry a *different* element with the same id pattern.
+  And judge it **per host, never per card id**: the sideboard stays a text list in the
+  visual views, so one card can carry Moxfield's icon on its sideboard row and nothing
+  on its mainboard tile.
 
 ### Scryfall
 

@@ -462,19 +462,32 @@ try {
   }
 
   // --- Game Changer: ours shows only where Moxfield's does not ---------------
-  // Moxfield prints its own fa-gauge icon beside game changers, but only in the
-  // text views. We must fill the gap in image views and stay quiet in text
-  // ones, so assert the invariant rather than a fixed expectation.
+  // Moxfield prints its own fa-gauge icon beside game changers, but only on text
+  // rows. Judged per host, not per page: in the visual views the sideboard stays
+  // a text list, so the page can show Moxfield's icon on one card's sideboard
+  // row and our ring on another card's tile with nothing duplicated - which the
+  // old page-wide count reported as a failure. Holds in any view and any deck,
+  // including one with no game changers at all.
   const gc = await page.evaluate(() => {
-    const moxIcons = [...document.querySelectorAll('.fa-gauge[id*="-brackets-"]')].filter((e) => e.offsetParent);
-    const ours = [...document.querySelectorAll('.edhrec-badge.edhrec-game-changer')];
-    return { mox: moxIcons.length, ours: ours.length, view: 'image' };
+    const MARK = '.fa-gauge[id*="-brackets-"]';
+    const iconOn = (host) => [...host.querySelectorAll(MARK)].some((e) => e.offsetParent);
+    const badges = [...document.querySelectorAll('.edhrec-badge')].filter((b) => b.offsetParent);
+    const ringed = badges.filter((b) => b.classList.contains('edhrec-game-changer'));
+    return {
+      icons: [...document.querySelectorAll(MARK)].filter((e) => e.offsetParent).length,
+      rings: ringed.length,
+      // Our ring on a host where Moxfield's icon already shows.
+      doubled: ringed.filter((b) => iconOn(b.parentElement)).map((b) => b.dataset.cardName),
+      // A ring withheld in favour of an icon that is not on this host.
+      unmarked: badges.filter((b) => b.dataset.moxGameChanger === '1' && !iconOn(b.parentElement)).map((b) => b.dataset.cardName),
+    };
   });
   check(
-    !(gc.mox > 0 && gc.ours > 0),
+    gc.doubled.length === 0,
     'game-changer marker is not duplicated',
-    `(moxfield ${gc.mox}, ours ${gc.ours} in an image view)`
+    `(moxfield ${gc.icons}, ours ${gc.rings}${gc.doubled.length ? `; both on ${gc.doubled.join(', ')}` : ''})`
   );
+  check(gc.unmarked.length === 0, 'no game changer is left unmarked', gc.unmarked.length ? `(${gc.unmarked.join(', ')})` : '');
 
   const tiles = await page.$$('.img-card');
   const timings = [];

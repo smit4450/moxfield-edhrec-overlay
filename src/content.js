@@ -194,7 +194,7 @@
       el.classList.add(tierFor(info.rank));
       el.textContent = `#${info.rank.toLocaleString()}`;
       // The gold ring is suppressed only where Moxfield is already showing its
-      // own marker - text views. In every visual view it is the sole indicator.
+      // own marker on this same row. On every image tile it is the sole indicator.
       if (info.gameChanger && !moxfieldFlagsGameChanger) el.classList.add('edhrec-game-changer');
     }
     // Remembered so a later tooltip repaint keeps making the same choice.
