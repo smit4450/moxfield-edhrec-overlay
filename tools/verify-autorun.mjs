@@ -25,7 +25,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DECK = process.argv[2] || 'https://moxfield.com/decks/ri44zg2DG0iBE2jUNXEdPg';
+// An official precon rather than anyone's own deck: players edit theirs, and the
+// previous default quietly lost its commander, which skipped every EDHREC check
+// below. This one (Hatsune Miku, Secret Lair Commander 2026) also displays
+// flavor names, and carries a salty card, the High Lift list and combos.
+const DECK = process.argv[2] || 'https://moxfield.com/decks/n3QS3JZ_zkmwLhmLDTc8Sw';
 
 // --- build the throwaway Chromium copy -------------------------------------
 const extDir = join(root, '.pw-ext');
@@ -142,6 +146,9 @@ try {
   });
 
   console.log(`\ncommander detected: ${JSON.stringify(edh.commanders)}`);
+  // A failure, not a skip. Every EDHREC check in this file needs a commander,
+  // and a deck without one used to pass by running almost none of them.
+  check(Boolean(edh.commanders?.length), 'deck has a commander', edh.commanders ? '' : '(pass a Commander deck URL)');
   if (edh.commanders?.length) {
     check(edh.withLift > 0, 'lift in tooltips', `(${edh.withLift}/${edh.total})`);
     check(edh.withSynergy > 0, 'synergy % in tooltips', `(${edh.withSynergy}/${edh.total})`);
@@ -149,8 +156,6 @@ try {
     console.log(`   list tags ${edh.withList}, salt ${edh.withSalt}`);
     console.log('\n   richest tooltip:');
     for (const line of edh.richest.split('. ')) console.log('     ' + line);
-  } else {
-    console.log('   (deck has no commander; EDHREC enrichment correctly skipped)');
   }
 
   // --- Commander rank -------------------------------------------------------
@@ -334,7 +339,15 @@ try {
     );
     const ascending = cuts.liftOrder.every((v, i, a) => i === 0 || a[i - 1] <= v);
     check(ascending && cuts.liftOrder.length > 1, 'cuts sorted lowest-lift first', `(${cuts.liftOrder.slice(0, 4).join(', ')})`);
-    check(Boolean(cuts.salt), 'deck salt total shown', cuts.salt ? `(${cuts.salt.slice(0, 44)})` : '');
+    // The property, not the deck: a total shows exactly when some card carries a
+    // salt score. Demanding one failed on any deck without a top-100 salty card,
+    // which says nothing about the extension.
+    const salty = edh.withSalt > 0;
+    check(
+      Boolean(cuts.salt) === salty,
+      salty ? 'deck salt total shown' : 'no salt total for a deck with no salty cards',
+      cuts.salt ? `(${cuts.salt.slice(0, 44)})` : `(${edh.withSalt} salty badges)`
+    );
     // You cannot cut your commander, so it must never be offered as a cut.
     const cmdName = (edh.commanders || '').split(' and ')[0].trim().toLowerCase();
     const cutListsCommander = cmdName
@@ -375,17 +388,31 @@ try {
 
     // Combo pieces are usually NOT in EDHREC's list for the commander, so they
     // arrive with no Scryfall id and used to get no hover preview at all.
-    await page.waitForTimeout(4000); // prices carry the id, and arrive late
     // Must be a row EDHREC does NOT list for this commander, i.e. one with no
     // lift figure. Those are the rows that had no id and so no preview;
     // hovering any old row tests nothing, because the listed ones always
     // worked.
+    //
+    // And one whose price has landed, since prices carry the id. A fixed 4s was
+    // enough for the 11 unlisted pieces on one deck and not the 14 on another,
+    // so it tested the wait rather than the preview.
+    await page
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('.edhrec-panel-combo .edhrec-panel-row')].some(
+            (r) => !r.querySelector('.edhrec-panel-lift') && /^\$/.test(r.querySelector('.edhrec-panel-price')?.textContent || '')
+          ),
+        null,
+        { timeout: 30000 }
+      )
+      .catch(() => {});
     const rowSplit = await page.evaluate(() => {
       const rows = [...document.querySelectorAll('.edhrec-panel-combo .edhrec-panel-row')];
       const unlisted = rows.filter((r) => !r.querySelector('.edhrec-panel-lift'));
-      // Mark one so the hover below targets it unambiguously.
-      unlisted[0]?.setAttribute('data-test-unlisted', '1');
-      return { rows: rows.length, unlisted: unlisted.length, name: unlisted[0]?.querySelector('.edhrec-panel-name')?.textContent };
+      const target = unlisted.find((r) => /^\$/.test(r.querySelector('.edhrec-panel-price')?.textContent || ''));
+      // Mark it so the hover below targets it unambiguously.
+      target?.setAttribute('data-test-unlisted', '1');
+      return { rows: rows.length, unlisted: unlisted.length, name: target?.querySelector('.edhrec-panel-name')?.textContent };
     });
     console.log(`   combo rows ${rowSplit.rows}, of which ${rowSplit.unlisted} are not in EDHREC's list` +
       (rowSplit.name ? ` (testing ${rowSplit.name})` : ''));
@@ -445,11 +472,23 @@ try {
   );
   check(anyTitle === 0, 'no native title attributes left', `(${anyTitle} found)`);
 
-  const tipBadge = await page.$('.edhrec-badge');
+  // A tile or row badge, not the hover preview's: the preview's badge is
+  // replaced whenever Moxfield swaps the preview, which can happen mid-hover,
+  // and the first badge in the DOM was often that one.
+  //
+  // Any scroll hides the tooltip, by design, and the scroll event lands a frame
+  // after scrollIntoViewIfNeeded() returns. Hovering straight away let it cancel
+  // the tooltip whenever the badge had to be scrolled to, which made this pass
+  // or fail with the page's scroll position. So let the scroll settle, then wait
+  // for the tooltip rather than a fixed 500ms.
+  const tipBadge = await page.$('.edhrec-badge:not(.edhrec-preview-host > .edhrec-badge)');
   if (tipBadge) {
     await tipBadge.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
     await tipBadge.hover();
-    await page.waitForTimeout(500);
+    await page
+      .waitForFunction(() => document.querySelector('.edhrec-tip')?.classList.contains('is-visible'), null, { timeout: 2000 })
+      .catch(() => {});
     const tip = await page.evaluate(() => {
       const t = document.querySelector('.edhrec-tip');
       if (!t) return null;
@@ -465,6 +504,21 @@ try {
     check(Boolean(tip?.visible), 'styled tooltip appears on hover');
     check(Boolean(tip?.onScreen), 'tooltip stays inside the viewport');
     check(Boolean(tip?.inert), 'tooltip does not intercept the pointer');
+    if (!tip?.visible) {
+      // Say what the pointer was actually over: "no tooltip" alone cannot tell a
+      // covered badge from a replaced one from a tooltip that was hidden again.
+      const diag = await tipBadge.evaluate((b) => {
+        const r = b.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+          badge: b.dataset.cardName,
+          stillAttached: b.isConnected,
+          underPointer: at ? `${at.tagName.toLowerCase()}.${[...at.classList].slice(0, 2).join('.')}` : null,
+          tipExists: Boolean(document.querySelector('.edhrec-tip')),
+        };
+      });
+      console.log('   diagnosis:', JSON.stringify(diag));
+    }
   }
 
   // --- Game Changer: ours shows only where Moxfield's does not ---------------

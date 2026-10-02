@@ -13,7 +13,7 @@ stops applying.
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
 | `npm run test:panel` | Panel, tooltip and badge unit tests with a stubbed messenger. Deterministic, headless, no network. |
-| `npm run verify:autorun` | Loads the real built extension in a browser and checks 32 behaviours end to end. |
+| `npm run verify:autorun` | Loads the real built extension in a browser and checks 33 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
 | `npm run dev` | Launches Firefox with the extension loaded on a deck page. |
@@ -58,7 +58,18 @@ symptom in automation; it is a block, not slowness.
 **Do not assert on values that depend on deck contents.** `verify:autorun` asserted
 that "High Synergy Cards" was the first Add section; it failed once the deck already ran
 everything in that section, so the section vanished. Assert the *property* — curated
-sections precede bulk ones — not the incidental value.
+sections precede bulk ones — not the incidental value. The same mistake failed valid decks
+twice more: the salt check demanded a top-100 salty card, and the commander check a
+commander ranked under 2,000.
+
+**Test against a deck nobody edits.** The rigs default to an official precon — Moxfield's
+*"Official … Precon Decklist"* decks do not change. The previous default was a player's
+deck that lost its commander, which quietly skipped every EDHREC check, so the rig now
+fails outright when a deck has no commander.
+
+**Any scroll hides the tooltip**, and the scroll event lands a frame after
+`scrollIntoViewIfNeeded()` returns. Hovering straight after it made the tooltip checks
+pass or fail with the page's scroll position; let the scroll settle first.
 
 **Validate every regression test by reverting the fix and confirming it fails.** Two
 tests in this repo passed against the very bug they were written for:

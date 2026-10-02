@@ -25,7 +25,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DECK = process.argv[2] || 'https://moxfield.com/decks/ri44zg2DG0iBE2jUNXEdPg';
+// The same official precon as verify-autorun: players edit their own decks.
+const DECK = process.argv[2] || 'https://moxfield.com/decks/n3QS3JZ_zkmwLhmLDTc8Sw';
 const adapter = readFileSync(join(root, 'src', 'moxfield-dom.js'), 'utf8');
 const css = readFileSync(join(root, 'src', 'badge.css'), 'utf8');
 const SHOTS = join(root, '.pw-shots');
