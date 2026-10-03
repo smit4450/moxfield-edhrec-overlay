@@ -668,6 +668,15 @@
   margin: 4px 0 0 21px;
 }
 
+/* Some combo results are longer than the drawer is wide - "From now on,
+   destroy any creatures opponents control at instant speed". A chip that
+   cannot wrap ran off the edge, where the body's overflow-x cut it off. In a
+   wrapping flex row a chip that fits still moves to the next line whole; only
+   one wider than the row breaks its text. */
+.edhrec-panel-chips > .edhrec-panel-chip {
+  white-space: normal;
+}
+
 .edhrec-panel-avgstat {
   display: flex;
   align-items: baseline;

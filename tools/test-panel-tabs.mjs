@@ -14,6 +14,10 @@
  * Both stubs are deliberately slow, to hold the window open: an instant reply
  * lands before the click and hides the bug.
  *
+ * The combo the stub returns also carries a result longer than the drawer is
+ * wide. Result chips did not wrap, so one ran off the edge and was cut off - in
+ * a store screenshot, which is where it was caught.
+ *
  * Stubbed messenger, no network, no Moxfield: deterministic and headless.
  */
 
@@ -49,7 +53,15 @@ try {
           }
           if (msg.type === 'lookup-combos') {
             await slow(700);
-            return { ok: true, included: [], almost: [] };
+            // The longest result in Commander Spellbook's feature list, 147
+            // characters. The one first seen cut off, at 70, fits this row in
+            // some fonts.
+            const almost = [{
+              cards: ['Combo Piece', 'Filler'],
+              produces: ['Infinite mana', 'Near-infinite colored mana that can only be spent to cast creature spells with mana value 4 or greater or creature spells with X in their mana cost'],
+              missing: ['Combo Piece'],
+            }];
+            return { ok: true, included: [], almost };
           }
           if (msg.type === 'lookup-average') {
             asked.average++;
@@ -106,6 +118,22 @@ try {
     stat: document.querySelector('.edhrec-panel-avgstat')?.innerText.replace(/\s+/g, ' ') ?? null,
   }));
   check(avg.asked === 1 && Boolean(avg.stat), 'the average list loads when Avg is opened while combos load', `(${avg.asked} requests; ${avg.stat ?? 'nothing shown'})`);
+
+  // The long combo result. Its unwrapped width is measured too: in a font
+  // narrow enough to fit the row, this check could not fail.
+  await tab('Combos');
+  await page.waitForSelector('.edhrec-panel-combo .edhrec-panel-chip', { timeout: 5000 });
+  const long = await page.evaluate(() => {
+    const chip = [...document.querySelectorAll('.edhrec-panel-combo .edhrec-panel-chip')].find((c) => c.textContent.startsWith('Near-infinite'));
+    const row = chip.parentElement.getBoundingClientRect();
+    const probe = chip.cloneNode(true);
+    probe.style.cssText = 'position: absolute; white-space: nowrap; visibility: hidden';
+    chip.parentElement.append(probe);
+    const unwrapped = probe.getBoundingClientRect().width;
+    probe.remove();
+    return { row: Math.round(row.width), unwrapped: Math.round(unwrapped), over: Math.round(chip.getBoundingClientRect().right - row.right) };
+  });
+  check(long.unwrapped > long.row && long.over <= 0, 'a combo result wider than the drawer wraps inside it', `(${long.unwrapped}px of text, ${long.row}px row, ${long.over > 0 ? `${long.over}px past the edge` : 'inside'})`);
 } catch (err) {
   failures++;
   console.log('FAILED:', err.message.split('\n')[0]);
