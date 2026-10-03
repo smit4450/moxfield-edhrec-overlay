@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Moxfield EDHREC Overlay",
-  "version": "1.0.0",
-  "description": "Shows each card's EDHREC rank as a badge on Moxfield deck pages, using Scryfall's edhrec_rank field.",
+  "version": "1.1.0",
+  "description": "EDHREC rank, lift and price on every card in your Moxfield deck, plus what to add, what to cut, and combos one card away.",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
     "gecko": {

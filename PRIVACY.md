@@ -50,6 +50,7 @@ not requested repeatedly:
 | Card ranks | 7 days |
 | Prices | 24 hours |
 | EDHREC commander data | 24 hours |
+| EDHREC average deck | 24 hours |
 | Salt list | 7 days |
 | Combo results | 24 hours |
 
@@ -77,7 +78,17 @@ extension sends them card names only, with no information about who is asking.
 
 The manifest declares `websiteContent` under Firefox's data-collection disclosure,
 because card names read from the page are transmitted off the device. That declaration
-is deliberately not `none`.
+is deliberately not `none`. The Chrome Web Store listing discloses the same thing, as
+*Website content*, and nothing else.
+
+## Chrome Web Store: Limited Use
+
+The use of information received by this extension will adhere to the
+[Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use),
+including the Limited Use requirements. Card names are used only to look up the
+statistics the extension shows you. They are not sold, not used for advertising or to
+determine creditworthiness, and never sent to the developer, so no person working on this
+extension ever sees them.
 
 ## Changes
 

@@ -10,8 +10,8 @@ module.exports = {
   ignoreFiles: [
     'tools',
     'node_modules',
-    // Listing assets are for AMO, not for the package: the screenshots alone
-    // are several MB and would ship inside every install.
+    // Listing assets are for the stores, not for the package: the screenshots
+    // alone are several MB and would ship inside every install.
     'listing',
     'CLAUDE.md',
     '.github',

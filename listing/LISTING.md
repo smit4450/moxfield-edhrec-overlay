@@ -2,7 +2,7 @@
 
 Everything a public addons.mozilla.org listing needs. The copy itself lives in
 [`amo-metadata.json`](amo-metadata.json) so it exists in exactly one place; this file is
-the guide around it.
+the guide around it. The Chrome Web Store's guide is [`CHROME.md`](CHROME.md).
 
 ## Two ways to submit
 
