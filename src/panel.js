@@ -14,7 +14,8 @@
  */
 
 globalThis.EdhrecPanel = (() => {
-  const api = globalThis.browser ?? globalThis.chrome;
+  // The same check as content.js, for the same page element named "browser".
+  const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 
   /**
    * EDHREC returns ~265 recommendations against a ~67-card deck, so ~200 are

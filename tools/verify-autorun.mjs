@@ -9,18 +9,21 @@
  * It then hovers cards and measures how long the preview badge takes to
  * follow, since that path is easy to regress.
  *
- * The shipped manifest is Firefox-only on purpose: Firefox MV3 uses
- * background.scripts, Chromium MV3 requires background.service_worker, and
- * declaring both makes web-ext warn on every lint. So this builds a throwaway
- * Chromium-flavoured copy under .pw-ext/ rather than compromising the real one.
- * The content scripts, adapter, CSS and background logic are byte-identical —
- * only the background entry point differs.
+ * It loads the SHIPPED manifest, unmodified - the same file both stores get.
+ * One manifest serves Firefox and Chrome: Firefox runs background.scripts,
+ * Chrome background.service_worker, and preferred_environment keeps web-ext's
+ * lint quiet about the pair. This used to rewrite a Chromium-only copy, which
+ * meant keeping that rewrite in sync with the real manifest by hand - and
+ * adding `icons` once broke all 30 checks when it fell out of sync. The files
+ * are still copied, into .pw-ext/, so that what loads is what ships rather
+ * than the whole repository - node_modules, .git, and this rig's own browser
+ * profile, which lives in the repository root.
  *
  * Cloudflare blocks headless, so this runs headed. A window will open.
  */
 
 import { chromium } from 'playwright';
-import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'node:fs';
+import { readFileSync, mkdirSync, cpSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -31,7 +34,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // flavor names, and carries a salty card, the High Lift list and combos.
 const DECK = process.argv[2] || 'https://moxfield.com/decks/n3QS3JZ_zkmwLhmLDTc8Sw';
 
-// --- build the throwaway Chromium copy -------------------------------------
+// --- copy the extension's own files ------------------------------------------
 const extDir = join(root, '.pw-ext');
 rmSync(extDir, { recursive: true, force: true });
 mkdirSync(extDir, { recursive: true });
@@ -39,11 +42,7 @@ cpSync(join(root, 'src'), join(extDir, 'src'), { recursive: true });
 // Icons too: the manifest references them, and Chromium refuses to load an
 // extension whose declared icon files are missing.
 cpSync(join(root, 'icons'), join(extDir, 'icons'), { recursive: true });
-
-const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
-delete manifest.browser_specific_settings; // Firefox-only, and Chromium rejects the id
-manifest.background = { service_worker: 'src/background.js' };
-writeFileSync(join(extDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+cpSync(join(root, 'manifest.json'), join(extDir, 'manifest.json'));
 
 // Wipe the profile every run. Chromium caches the unpacked extension inside the
 // profile, so a persistent one silently keeps serving an older build: a run

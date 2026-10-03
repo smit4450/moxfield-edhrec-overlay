@@ -1,7 +1,8 @@
 # Working on this project
 
-A Firefox MV3 extension that overlays EDHREC data onto Moxfield. The README explains
-*what it does and why*; this file is *how to work on it without relearning the traps*.
+A Firefox and Chrome MV3 extension that overlays EDHREC data onto Moxfield. The README
+explains *what it does and why*; this file is *how to work on it without relearning the
+traps*.
 
 Almost everything below was discovered by something breaking. Where a rule looks
 arbitrary, it is usually load-bearing — the reason is given so you can tell when it
@@ -12,7 +13,7 @@ stops applying.
 | | |
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
-| `npm run test:panel` | Panel, tooltip and badge unit tests with a stubbed messenger. Deterministic, headless, no network. |
+| `npm run test:panel` | Unit tests — panel, tooltip, badges, storage — with a stubbed messenger, storage and fetch. Deterministic, headless, no network. |
 | `npm run verify:autorun` | Loads the real built extension in a browser and checks 33 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
@@ -81,11 +82,11 @@ tests in this repo passed against the very bug they were written for:
 
 A test that cannot fail is worse than no test, because it is believed.
 
-`verify:autorun` builds a throwaway Chromium copy of the extension under `.pw-ext/`
-(Chromium MV3 needs `background.service_worker`; Firefox uses `background.scripts`).
-**Keep that rig in sync with the manifest** — adding `icons` broke all 30 checks at once
-because the rig copied only `src/` and Chromium refuses to load an extension whose
-declared icons are missing.
+`verify:autorun` loads the **shipped manifest, unmodified**, into Chromium: one manifest
+serves both browsers (see Chrome below). It used to rewrite a Chromium-only copy, and that
+rewrite drifting from the real manifest is how adding `icons` broke all 30 checks at once.
+It still copies the extension's files into `.pw-ext/` — every file the manifest names, or
+Chromium refuses to load it — so that what loads is what ships.
 
 It also wipes its browser profile every run. That is deliberate: Chromium caches the
 unpacked extension inside the profile and will silently serve a stale build. The cost is
@@ -129,8 +130,8 @@ shipped green.
   `/cards/collection` matches only real names. `/cards/search?q=!"…"` matches flavor
   names and rescues them.
 - **Default User-Agents are rejected** with `HTTP 400 / generic_user_agent`. Extensions
-  *cannot* set that header — it is a forbidden header name. Firefox's own UA is accepted,
-  so this works, but do not "fix" it by adding the header.
+  *cannot* set that header — it is a forbidden header name. Firefox's and Chrome's own UAs
+  are accepted, so this works, but do not "fix" it by adding the header.
 - **One malformed `id` 400s the entire batch**, not just that identifier. Validate UUIDs
   before sending.
 - **Prices need the cheapest printing, resolved by name.** EDHREC ids point at arbitrary
@@ -214,9 +215,36 @@ last given.
   because the rig wipes its profile.
 - **Shape-check reads as well as versions**, so a fumbled bump cannot serve garbage.
 - Every family (`rank:`, `edhrec:`, `salt:`, `price:`, `combos:`, `average:`) must be
-  registered in `purgeStaleCacheVersions()`.
+  registered in `purgeStaleCache()`, with its TTL. That sweep is the only thing that ever
+  deletes an entry: reads skip expired ones but do not remove them.
+- **A cache write must never fail a lookup.** Route every write through `cacheWrite()`.
+  The answer is already in hand when it is cached; a rejected write used to reject the
+  lookup itself, and a failed EDHREC or salt write threw away data just fetched.
 - TTLs encode upstream reality: ranks 7 days, prices 24h (Scryfall updates daily),
   EDHREC 24h, salt 7 days.
+
+### Chrome
+
+Everything above runs in Chrome unchanged; these are the differences that bite.
+
+- **One manifest, both background keys.** Firefox runs `background.scripts`, Chrome runs
+  `background.service_worker` and has ignored `scripts` beside it since 121 (hence
+  `minimum_chrome_version`). `"preferred_environment": ["document"]` is what keeps
+  `web-ext lint` at 0 warnings about the pair — and only from web-ext 9.3. Chrome also
+  ignores `browser_specific_settings`, so there is no separate Chrome build.
+- **storage.local is capped at 10 MB in Chrome** unless the manifest asks for
+  `unlimitedStorage`, which it does (no install warning in either browser). Firefox has no
+  cap, which is why running out only ever happened in Chrome — and why the expiry sweep
+  and non-fatal writes above matter even with the permission.
+- **Detect the API with `browser?.runtime`, never `browser ?? chrome`.** Chrome had no
+  `browser` object before 148, and a page element with `id="browser"` is reachable as
+  `globalThis.browser` from a content script.
+- **The background is a service worker**, stopped after 30s idle and restarted on the next
+  message. In-memory state — the Scryfall queue — is lost then, which is harmless: an open
+  `sendMessage` reply keeps the worker alive until it is answered, for up to 5 minutes.
+- **Branded Chrome ignores `--load-extension`** since 137. `web-ext run -t chromium` loads
+  through the DevTools protocol instead; the Playwright rigs use Playwright's own Chromium,
+  which still accepts the flag.
 
 ## Publishing
 

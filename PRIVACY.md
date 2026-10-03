@@ -1,6 +1,9 @@
 # Privacy Policy
 
-**Moxfield EDHREC Overlay** · last updated 2026-10-01
+**Moxfield EDHREC Overlay** · last updated 2026-10-03
+
+This policy covers the extension in both Firefox and Chrome. The two are the same code
+and behave identically.
 
 ## The short version
 
@@ -50,8 +53,9 @@ not requested repeatedly:
 | Salt list | 7 days |
 | Combo results | 24 hours |
 
-This cache holds card statistics only — no personal data. It never leaves your browser
-and is deleted when you uninstall the extension. You can clear it at any time by
+This cache holds card statistics only — no personal data. Expired entries are deleted
+whenever the extension starts. The cache never leaves your browser and is deleted when
+you uninstall the extension. You can clear it at any time by
 removing and reinstalling the extension.
 
 ## Third-party services
@@ -65,6 +69,7 @@ extension sends them card names only, with no information about who is asking.
 | Permission | Reason |
 |---|---|
 | `storage` | The local cache described above |
+| `unlimitedStorage` | Lets that cache grow past Chrome's 10 MB default. It holds the same card statistics, nothing more |
 | `moxfield.com` | Read card names from the page and draw the overlay |
 | `api.scryfall.com` | Look up ranks and prices |
 | `json.edhrec.com` | Look up lift, synergy and recommendations |

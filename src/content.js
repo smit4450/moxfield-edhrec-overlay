@@ -7,7 +7,10 @@
  */
 
 (() => {
-  const api = globalThis.browser ?? globalThis.chrome;
+  // `browser.runtime`, not just `browser`. Chrome had no `browser` object
+  // before 148, and a page element with id="browser" is reachable as
+  // globalThis.browser - a node `??` would happily hand back as the API.
+  const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
   const dom = globalThis.MoxfieldDom;
 
   // React can reconcile our badges away mid-burst; debouncing lets the DOM

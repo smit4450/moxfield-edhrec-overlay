@@ -7,7 +7,8 @@
  * Moxfield tabs are open.
  */
 
-const api = globalThis.browser ?? globalThis.chrome;
+// The same check as the content scripts, where it matters: see content.js.
+const api = globalThis.browser?.runtime ? globalThis.browser : globalThis.chrome;
 
 const SCRYFALL_COLLECTION = 'https://api.scryfall.com/cards/collection';
 
@@ -41,29 +42,55 @@ const CACHE_VERSION = 'v4';
 const CACHE_PREFIX = `rank:${CACHE_VERSION}:`;
 
 /**
- * Drop entries left behind by an older cache version, across every family.
+ * Drop every entry that can no longer be served: written by an older cache
+ * version, or past its family's TTL.
+ *
+ * Expired entries used to stay forever - reads skip them, but nothing removed
+ * them - so storage only grew. Firefox does not cap storage.local; Chrome caps
+ * it at 10 MB without unlimitedStorage, and one commander page is ~60 KB. An
+ * entry with no timestamp is the wrong shape and goes too.
  *
  * Previously this only swept `rank:`, so superseded EDHREC and salt entries
  * accumulated instead of being cleaned up.
  */
-async function purgeStaleCacheVersions() {
+async function purgeStaleCache() {
   // Deferred to the end of the file: the current-key constants are declared
   // below, and reading them here would hit the temporal dead zone.
   const families = [
-    ['rank:', CACHE_PREFIX],
-    ['edhrec:', EDHREC_PREFIX],
-    ['salt:', SALT_KEY],
-    ['price:', PRICE_PREFIX],
-    ['combos:', COMBO_PREFIX],
-    ['average:', AVERAGE_PREFIX],
+    ['rank:', CACHE_PREFIX, CACHE_TTL_MS],
+    ['edhrec:', EDHREC_PREFIX, EDHREC_TTL_MS],
+    ['salt:', SALT_KEY, SALT_TTL_MS],
+    ['price:', PRICE_PREFIX, PRICE_TTL_MS],
+    ['combos:', COMBO_PREFIX, COMBO_TTL_MS],
+    ['average:', AVERAGE_PREFIX, EDHREC_TTL_MS],
   ];
   const all = await api.storage.local.get(null);
+  const now = Date.now();
   const dead = Object.keys(all).filter((k) =>
-    families.some(([family, current]) => k.startsWith(family) && !k.startsWith(current))
+    families.some(
+      ([family, current, ttl]) => k.startsWith(family) && (!k.startsWith(current) || !(now - all[k]?.ts < ttl))
+    )
   );
   if (!dead.length) return;
   await api.storage.local.remove(dead);
-  console.info(`[edhrec-overlay] cleared ${dead.length} cache entries from an older version`);
+  console.info(`[edhrec-overlay] cleared ${dead.length} expired or superseded cache entries`);
+}
+
+/**
+ * Every cache write goes through here, and none of them can fail a lookup.
+ *
+ * The answer is already in hand when it is cached; losing the write only costs
+ * a refetch. A rejected write used to reject the whole lookup, so once storage
+ * filled, every card not already cached lost its badge - and with nothing
+ * expiring entries, it never emptied again. A failed EDHREC or salt write
+ * likewise threw away data it had just fetched.
+ */
+async function cacheWrite(patch) {
+  try {
+    await api.storage.local.set(patch);
+  } catch (err) {
+    console.warn('[edhrec-overlay] cache write failed; continuing uncached:', err.message);
+  }
 }
 
 /**
@@ -113,7 +140,7 @@ async function writeCache(entries) {
   for (const [name, value] of entries) {
     patch[cacheKey(name)] = { value, ts: now };
   }
-  if (Object.keys(patch).length) await api.storage.local.set(patch);
+  if (Object.keys(patch).length) await cacheWrite(patch);
 }
 
 function chunk(arr, size) {
@@ -359,7 +386,7 @@ async function readJsonCache(key, ttl) {
   return hit && Date.now() - hit.ts < ttl ? hit.value : null;
 }
 
-const writeJsonCache = (key, value) => api.storage.local.set({ [key]: { value, ts: Date.now() } });
+const writeJsonCache = (key, value) => cacheWrite({ [key]: { value, ts: Date.now() } });
 
 /**
  * Flatten a commander page into two views of the same data:
@@ -640,7 +667,7 @@ async function lookupPrices(names) {
   for (const name of stale) {
     if (name in result) patch[priceKey(name)] = { value: result[name], ts: now };
   }
-  if (Object.keys(patch).length) await api.storage.local.set(patch);
+  if (Object.keys(patch).length) await cacheWrite(patch);
   return result;
 }
 
@@ -794,7 +821,7 @@ async function averageDeck(commanders) {
   return null;
 }
 
-purgeStaleCacheVersions().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
+purgeStaleCache().catch((err) => console.warn('[edhrec-overlay] cache purge failed:', err));
 
 api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'lookup-ranks') {

@@ -24,10 +24,11 @@ jobs:
       - run: npx --yes web-ext@latest lint --source-dir . --self-hosted
 
   panel:
-    name: Panel and tooltip unit tests
+    name: Unit tests
     runs-on: ubuntu-latest
-    # Safe to run on every push: these stub the messenger and never touch
-    # Moxfield or any third-party API, so they are deterministic and headless.
+    # Safe to run on every push: these stub the messenger, storage and fetch,
+    # and never touch Moxfield or any third-party API, so they are
+    # deterministic and headless.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -39,6 +40,7 @@ jobs:
       - run: node tools/test-lift.mjs
       - run: node tools/test-gamechanger.mjs
       - run: node tools/test-commander.mjs
+      - run: node tools/test-chrome.mjs
 
   contract:
     name: Scryfall / EDHREC contract

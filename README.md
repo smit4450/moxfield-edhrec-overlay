@@ -1,6 +1,7 @@
 # Moxfield EDHREC Overlay
 
-A Firefox extension that badges every card on a Moxfield page with its **EDHREC rank**.
+A Firefox and Chrome extension that badges every card on a Moxfield page with its
+**EDHREC rank**.
 
 Nothing like this appeared to exist when this repo was started (2026-09-09). The closest
 neighbors — [Moxfield Card Pricer][pricer], [Moxfield to Scryfall Linker][linker],
