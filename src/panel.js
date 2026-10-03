@@ -222,31 +222,32 @@ globalThis.EdhrecPanel = (() => {
           main: mainDeckNames(),
         })
       )
+        // Clear the flag BEFORE rendering - see ensurePrices().
+        .finally(() => {
+          extraPending = false;
+        })
         .then((res) => {
           if (!res?.ok) return;
           combos = { included: res.included || [], almost: res.almost || [] };
           combosKey = key;
           render();
         })
-        .catch((err) => console.warn('[edhrec-overlay] combo lookup failed:', err.message))
-        .finally(() => {
-          extraPending = false;
-        });
+        .catch((err) => console.warn('[edhrec-overlay] combo lookup failed:', err.message));
     }
 
     if (tab === 'avg' && averageKey !== key && state.commander) {
       extraPending = true;
       Promise.resolve(api.runtime.sendMessage({ type: 'lookup-average', commanders: [state.commander] }))
+        .finally(() => {
+          extraPending = false;
+        })
         .then((res) => {
           if (!res?.ok) return;
           average = res.cards || [];
           averageKey = key;
           render();
         })
-        .catch((err) => console.warn('[edhrec-overlay] average deck failed:', err.message))
-        .finally(() => {
-          extraPending = false;
-        });
+        .catch((err) => console.warn('[edhrec-overlay] average deck failed:', err.message));
     }
   }
 
@@ -260,16 +261,23 @@ globalThis.EdhrecPanel = (() => {
     // By name, not by EDHREC's card id: those ids point at arbitrary printings
     // (its Volcanic Island is Beta, unpriced in USD), and the useful number is
     // the cheapest printing you could actually buy.
+    //
+    // The flag comes down BEFORE the render, not after. render() asks again for
+    // whatever the tab now on screen still lacks - which is a different tab if
+    // the user switched while this was in flight - and with the flag still up
+    // that ask was dropped, and nothing asked again: switch tabs mid-request and
+    // the new tab's prices never loaded. Only success re-renders, so a failing
+    // request cannot retry itself in a loop.
     Promise.resolve(api.runtime.sendMessage({ type: 'lookup-prices', names: need.map((c) => c.name) }))
+      .finally(() => {
+        pricesPending = false;
+      })
       .then((res) => {
         if (!res?.ok) return;
         for (const c of need) prices.set(c.name, res.prices[c.name] ?? null);
         render();
       })
-      .catch((err) => console.warn('[edhrec-overlay] price lookup failed:', err.message))
-      .finally(() => {
-        pricesPending = false;
-      });
+      .catch((err) => console.warn('[edhrec-overlay] price lookup failed:', err.message));
   }
 
   /** Recommendations the deck does not already contain, grouped as EDHREC has them. */

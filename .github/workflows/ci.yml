@@ -37,6 +37,7 @@ jobs:
       - run: npm i --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: node tools/test-panel-deckswitch.mjs
+      - run: node tools/test-panel-tabs.mjs
       - run: node tools/test-lift.mjs
       - run: node tools/test-gamechanger.mjs
       - run: node tools/test-commander.mjs
