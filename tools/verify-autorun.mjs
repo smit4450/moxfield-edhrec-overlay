@@ -237,6 +237,37 @@ try {
     console.log('   (could not switch to Visual Grid; hovering whatever is here)');
   }
 
+  // --- Badges sit where the card is visible -----------------------------------
+  // Visual Grid overlaps its rows, and a badge in the bottom corner sat under
+  // the next card on every card but a group's last - while verify-live, which
+  // only checks that badges exist and are laid out, passed. Only badges under
+  // ANOTHER CARD count: the sticky footer and floating ads cover things too,
+  // and say nothing about the extension.
+  const occlusion = await page.evaluate(async () => {
+    const hosts = [...document.querySelectorAll('.edhrec-host:not(.edhrec-preview-host)')].filter((h) => h.offsetParent);
+    hosts[Math.min(4, hosts.length - 1)]?.scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 500));
+    let onScreen = 0;
+    const under = [];
+    for (const h of hosts) {
+      const b = h.querySelector(':scope > .edhrec-badge');
+      if (!b) continue;
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      if (y < 60 || y > innerHeight - 80 || x < 0 || x > innerWidth) continue;
+      onScreen++;
+      const card = document.elementFromPoint(x, y)?.closest('.edhrec-host');
+      if (card && card !== h) under.push(b.dataset.cardName);
+    }
+    return { onScreen, under };
+  });
+  check(
+    occlusion.onScreen > 0 && occlusion.under.length === 0,
+    'no badge is hidden under another card',
+    `(${occlusion.onScreen} on screen${occlusion.under.length ? `; ${occlusion.under.length} under the next card, e.g. ${occlusion.under.slice(0, 2).join(', ')}` : ''})`
+  );
+
   // --- Recommendations panel -------------------------------------------------
   const launcher = await page.$('.edhrec-panel-launcher');
   check(Boolean(launcher), 'recommendations launcher appears');
@@ -472,18 +503,28 @@ try {
   check(anyTitle === 0, 'no native title attributes left', `(${anyTitle} found)`);
 
   // A tile or row badge, not the hover preview's: the preview's badge is
-  // replaced whenever Moxfield swaps the preview, which can happen mid-hover,
-  // and the first badge in the DOM was often that one.
+  // replaced whenever Moxfield swaps the preview, which can happen mid-hover.
   //
-  // Any scroll hides the tooltip, by design, and the scroll event lands a frame
-  // after scrollIntoViewIfNeeded() returns. Hovering straight away let it cancel
-  // the tooltip whenever the badge had to be scrolled to, which made this pass
-  // or fail with the page's scroll position. So let the scroll settle, then wait
-  // for the tooltip rather than a fixed 500ms.
-  const tipBadge = await page.$('.edhrec-badge:not(.edhrec-preview-host > .edhrec-badge)');
+  // And one that is actually on top once centred. The first badge in the DOM
+  // was the commander's, at the bottom edge of the screen, where Moxfield's
+  // sticky footer and a floating video ad slide over it - and an ad arriving
+  // under a still pointer hides the tooltip, correctly. That made this pass or
+  // fail with the ads. Any scroll hides it too, and the scroll event lands a
+  // frame after scrollIntoView() returns, so each candidate settles first.
+  const tipBadge = (
+    await page.evaluateHandle(async () => {
+      for (const b of document.querySelectorAll('.edhrec-badge:not(.edhrec-preview-host > .edhrec-badge)')) {
+        if (!b.offsetParent) continue;
+        b.scrollIntoView({ block: 'center' });
+        await new Promise((r) => setTimeout(r, 400));
+        const r = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        if (hit === b || b.contains(hit)) return b;
+      }
+      return null;
+    })
+  ).asElement();
   if (tipBadge) {
-    await tipBadge.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(400);
     await tipBadge.hover();
     await page
       .waitForFunction(() => document.querySelector('.edhrec-tip')?.classList.contains('is-visible'), null, { timeout: 2000 })

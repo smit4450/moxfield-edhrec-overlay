@@ -87,9 +87,18 @@ the rate limit holds no matter how many tabs are open.
 The badge also surfaces Scryfall's `game_changer` flag (the Commander Game Changer list)
 as a gold ring, and links out to the card's EDHREC page.
 
-It sits in the **bottom-left** of the card. The top-right is the mana cost, which is the
-one thing you most need to read at a glance; the bottom-left is the set-symbol area and
-the cheapest thing to cover.
+It sits on the **left edge, a quarter of the way down** a card: over the art, clear of
+the mana cost top-right — the one thing you most need to read at a glance — and below
+Moxfield's own hover menu, whose button covers 25–50px of a 240px card. At a fifth of
+the way down, hovering a card brought that button up over the badge, and it took the
+pointer before the tooltip could open.
+
+It used to sit bottom-left, on the set-symbol area. Moxfield's Visual Grid overlaps its
+rows, so each card shows only its top 100px of 240, and three badges in four were under
+the next card — while `verify-live`, which checks that badges exist and are laid out,
+passed. `verify-autorun` now checks that no badge is under another card. Visual Stacks
+are the exception: the tile is the 40px strip itself, and its bottom corner lands on the
+visible name strip, so there the badge stays.
 
 ### EDHREC data
 

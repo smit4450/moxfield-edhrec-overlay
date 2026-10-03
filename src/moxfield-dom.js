@@ -90,6 +90,7 @@ globalThis.MoxfieldDom = (() => {
    *   name   the card name to look up
    *   inline text-view badges sit in the flow; image badges sit in a corner
    *   live   re-derived every pass instead of being marked done
+   *   fullCard  an image tile showing a whole card rather than a stack's strip
    */
   function findTargets(root = document) {
     const mark = (t) => ({ ...t, moxfieldFlagsGameChanger: showsMoxfieldMark(t.host) });
@@ -115,7 +116,7 @@ globalThis.MoxfieldDom = (() => {
       const name = clean(img.getAttribute('alt'));
       if (!isPlausibleName(name)) continue;
       seen.add(host);
-      out.push({ host, mount: host, name, inline: false, live: false });
+      out.push({ host, mount: host, name, inline: false, live: false, fullCard: isFullCard(host) });
     }
     return out;
   }
@@ -142,6 +143,26 @@ globalThis.MoxfieldDom = (() => {
       out.push({ host: link, mount, name, inline: true, live: false });
     }
     return out;
+  }
+
+  /**
+   * Whether a tile shows a whole card, rather than the strip a stacked view
+   * leaves visible.
+   *
+   * Moxfield's Visual Grid overlaps its rows: each card shows only its top
+   * ~100px of 240, the rest under the next row, so a badge in the bottom corner
+   * was hidden on every card but the last row of each group. A full card
+   * therefore takes its badge higher up (see badge.css). Visual Stacks instead
+   * size the tile to the ~40px strip itself, and there the bottom corner lands
+   * on the name strip, which IS visible - so strips keep it.
+   *
+   * Geometry rather than markup, since the classes are build-hashed: a card is
+   * taller than it is wide, a strip is not. Measured while finding targets,
+   * which only reads, so attaching badges does not force a layout per tile.
+   */
+  function isFullCard(el) {
+    const r = el.getBoundingClientRect();
+    return r.height > 0 && r.height >= r.width;
   }
 
   /** The hover preview, re-derived every pass because it swaps cards in place. */
@@ -366,13 +387,14 @@ globalThis.MoxfieldDom = (() => {
   }
 
   /** Attach a badge for one target, replacing any React reconciled away. */
-  function attachBadge({ host, mount, inline, live }, badgeEl) {
+  function attachBadge({ host, mount, inline, live, fullCard }, badgeEl) {
     mount.querySelector(':scope > .edhrec-badge')?.remove();
     if (inline) {
       badgeEl.classList.add('edhrec-inline');
     } else {
       mount.classList.add('edhrec-host');
       if (live) mount.classList.add('edhrec-preview-host');
+      else mount.classList.toggle('edhrec-full-card', Boolean(fullCard));
     }
     if (!live) host.setAttribute(DONE_ATTR, '1');
     mount.appendChild(badgeEl);
@@ -386,7 +408,7 @@ globalThis.MoxfieldDom = (() => {
   /** Remove a live host's badge - e.g. a preview showing something unreadable. */
   function clearBadge(mount) {
     mount.querySelector(':scope > .edhrec-badge')?.remove();
-    mount.classList.remove('edhrec-preview-host', 'edhrec-host');
+    mount.classList.remove('edhrec-preview-host', 'edhrec-host', 'edhrec-full-card');
   }
 
   /** Clear every badge and marker - used when the overlay is toggled off. */
@@ -394,7 +416,7 @@ globalThis.MoxfieldDom = (() => {
     for (const b of root.querySelectorAll('.edhrec-badge')) b.remove();
     for (const h of root.querySelectorAll(`[${DONE_ATTR}]`)) h.removeAttribute(DONE_ATTR);
     for (const h of root.querySelectorAll('.edhrec-host, .edhrec-preview-host')) {
-      h.classList.remove('edhrec-host', 'edhrec-preview-host');
+      h.classList.remove('edhrec-host', 'edhrec-preview-host', 'edhrec-full-card');
     }
   }
 

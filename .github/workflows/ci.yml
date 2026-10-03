@@ -42,6 +42,7 @@ jobs:
       - run: node tools/test-gamechanger.mjs
       - run: node tools/test-commander.mjs
       - run: node tools/test-chrome.mjs
+      - run: node tools/test-badge-position.mjs
 
   contract:
     name: Scryfall / EDHREC contract

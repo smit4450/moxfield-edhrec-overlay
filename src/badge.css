@@ -59,6 +59,21 @@
   box-shadow: 0 0 0 1px #fbbf24, 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
+/* On a whole card the badge sits higher than that bottom corner. Moxfield's
+   Visual Grid overlaps its rows so that only the top ~100px of each 240px card
+   shows, which put a bottom-corner badge under the next row on every card but a
+   group's last - three in four, measured. So a full card carries it a quarter
+   of the way down: inside the strip an overlapped card still shows, and below
+   Moxfield's own hover controls. Its menu button covers 25-50px of a 240px
+   card; at a fifth of the way down, hovering a card brought that button up
+   over the badge, and it took the pointer before our tooltip could open. The
+   adapter decides what counts as a full card. A Visual Stacks strip is not
+   one, and keeps the bottom corner, which lands on its visible name strip. */
+.edhrec-host.edhrec-full-card > .edhrec-badge {
+  bottom: auto;
+  top: 25%;
+}
+
 /* The large hover preview on the left is several times the size of a grid tile,
    so a 11px badge reads as a speck on it. */
 .edhrec-preview-host > .edhrec-badge {

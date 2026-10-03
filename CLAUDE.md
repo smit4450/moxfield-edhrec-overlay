@@ -14,7 +14,7 @@ stops applying.
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
 | `npm run test:panel` | Unit tests — panel, tooltip, badges, storage — with a stubbed messenger, storage and fetch. Deterministic, headless, no network. |
-| `npm run verify:autorun` | Loads the real built extension in a browser and checks 33 behaviours end to end. |
+| `npm run verify:autorun` | Loads the real built extension in a browser and checks 34 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
 | `npm run dev` | Launches Firefox with the extension loaded on a deck page. |
@@ -109,6 +109,16 @@ shipped green.
   `a.table-deck-row-link` with no id. Requiring a card id filters them out.
 - **There are six view styles**, not three: Text, Condensed Text, Visual Grid, Visual
   Stacks, Visual Stacks (Split), Visual Spoiler. `npm run verify` covers all six.
+- **Laid out is not visible.** Visual Grid overlaps its rows (each card shows its top
+  ~100px of 240) and Visual Stacks show a ~40px strip, so a badge can be present, sized
+  and `offsetParent`-visible while sitting under the next card. Bottom-left badges were
+  hidden on three Grid cards in four, and every check passed. The adapter marks full
+  cards (taller than wide) so their badge sits a quarter of the way down; strips keep
+  the bottom corner. Not a fifth: Moxfield's hover menu button covers 25–50px of a
+  240px card, and at 48px it came up over the badge and took the pointer. Judge
+  visibility with `elementFromPoint`, and only count a badge hidden when another
+  *card* is on top: Stacks lay a transparent layer over the strips, which hit-testing
+  reports as covering badges you can plainly see.
 - **The hover preview swaps cards in place** rather than remounting, so it needs the
   live path and an `attributes` observer. It gets a fast path that skips the debounce;
   routing it through the normal scan made it visibly lag the pointer.
