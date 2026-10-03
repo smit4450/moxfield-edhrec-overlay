@@ -15,8 +15,8 @@ jobs:
     name: web-ext lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       # No install step: the extension has zero runtime dependencies, and
@@ -29,8 +29,8 @@ jobs:
     # Safe to run on every push: these stub the messenger and never touch
     # Moxfield or any third-party API, so they are deterministic and headless.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm i --no-save playwright
@@ -48,8 +48,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: node tools/test-lookup.mjs
