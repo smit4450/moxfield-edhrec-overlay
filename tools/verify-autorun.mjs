@@ -288,8 +288,16 @@ try {
         sections: [...document.querySelectorAll('.edhrec-panel-title')].map((t) => t.textContent),
         // The whole point of the feature: nothing listed may already be in the deck.
         alreadyInDeck: names.filter((n) => deck.has(n.split('//')[0].trim().toLowerCase())),
+        warning:
+          [...document.querySelectorAll('.edhrec-panel *')]
+            .map((e) => e.textContent)
+            .find((t) => /^Only \d+ of \d+ cards are visible/.test(t)) ?? null,
       };
     });
+    // This deck is shown in full, so the filter warning must stay quiet. It
+    // compared distinct names with Moxfield's count of copies, and fired on
+    // nearly every Commander deck: 32 Mountains are one name.
+    check(!panel.warning, 'no filter warning on a deck shown in full', panel.warning ? `("${panel.warning}")` : '');
     check(panel.open && panel.rows > 0, 'panel opens with recommendations', `(${panel.rows} rows)`);
     check(
       panel.alreadyInDeck.length === 0,

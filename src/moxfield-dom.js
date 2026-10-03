@@ -249,11 +249,53 @@ globalThis.MoxfieldDom = (() => {
   }
 
   /**
+   * How many cards the page is showing, counting copies - the number
+   * statedDeckSize() is compared with.
+   *
+   * deckCardNames() holds each card once, but Moxfield's "N main deck" counts
+   * copies. Compared directly, 32 Mountains made a fully shown 100-card deck
+   * read as 69 of 100, and the drawer warned of a filter on nearly every
+   * Commander deck. Every view prints the quantity in the card's own container
+   * - "32" in a text row's first cell or beside a stack's strip, "x32" on a
+   * grid card - so read it there, and count 1 where none is printed. Each card
+   * id counts once, as deckCardNames() does.
+   */
+  function deckCardCount(root = document) {
+    const seen = new Map();
+    const hosts = [
+      ...[...root.querySelectorAll(CARD_IMAGE)]
+        .filter((img) => !img.closest(SKIP_CONTAINERS) && !img.closest(PREVIEW_HOST))
+        .map(tileFor),
+      ...[...root.querySelectorAll(ROW_LINK)].filter(
+        (link) => !link.closest(SKIP_CONTAINERS) && link.id && CARD_ID_SUFFIX.test(link.id)
+      ),
+    ];
+    for (const host of hosts) {
+      const id = host?.id?.match(CARD_ID_SUFFIX)?.[1];
+      if (id && !seen.has(id)) seen.set(id, quantityOf(host));
+    }
+    let total = 0;
+    for (const n of seen.values()) total += n;
+    return total;
+  }
+
+  /** The quantity printed beside a card, or 1. The first bare number wins. */
+  function quantityOf(host) {
+    const box = host.closest('[data-hash]') || host.parentElement;
+    for (const el of box?.querySelectorAll('*') || []) {
+      if (el.children.length) continue;
+      const m = el.textContent.trim().match(/^x?(\d{1,3})$/);
+      if (m) return Number(m[1]);
+    }
+    return 1;
+  }
+
+  /**
    * The card count Moxfield states for itself, e.g. "67 main deck".
    *
    * Used as a cross-check: if fewer cards are visible than Moxfield claims, a
-   * filter or search is active and "not in this deck" would be a lie. Verified
-   * to agree exactly with deckCardNames() on an unfiltered page.
+   * filter or search is active and "not in this deck" would be a lie. It counts
+   * copies, so compare it with deckCardCount(), never with a set of names.
    */
   function statedDeckSize() {
     const m = document.body.innerText.match(/(\d[\d,]*)\s+main deck/i);
@@ -437,6 +479,7 @@ globalThis.MoxfieldDom = (() => {
     findTargets,
     findCommanderNames,
     deckCardNames,
+    deckCardCount,
     statedDeckSize,
     // Exposed separately so a hover can refresh just the preview, without
     // re-scanning every card on the page.

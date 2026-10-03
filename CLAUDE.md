@@ -14,7 +14,7 @@ stops applying.
 |---|---|
 | `npm test` | Contract test for the Scryfall/EDHREC paths. **Hits live APIs on purpose.** |
 | `npm run test:panel` | Unit tests — panel, tooltip, badges, storage — with a stubbed messenger, storage and fetch. Deterministic, headless, no network. |
-| `npm run verify:autorun` | Loads the real built extension in a browser and checks 34 behaviours end to end. |
+| `npm run verify:autorun` | Loads the real built extension in a browser and checks 35 behaviours end to end. |
 | `npm run verify` | DOM-adapter check across all six Moxfield view styles; screenshots to `.pw-shots/`. |
 | `npm run lint` | `web-ext lint`. Keep it at **0 errors, 0 warnings**. |
 | `npm run dev` | Launches Firefox with the extension loaded on a deck page. |
@@ -119,6 +119,10 @@ shipped green.
   visibility with `elementFromPoint`, and only count a badge hidden when another
   *card* is on top: Stacks lay a transparent layer over the strips, which hit-testing
   reports as covering badges you can plainly see.
+- **"N main deck" counts copies.** Compare it with `deckCardCount()`, which reads each
+  card's printed quantity — "x32" on a grid card, "32" in a text row or beside a stack's
+  strip — never with a set of names. 32 Mountains are one name, and the drawer's filter
+  warning fired on nearly every Commander deck.
 - **The hover preview swaps cards in place** rather than remounting, so it needs the
   live path and an `attributes` observer. It gets a fast path that skips the debounce;
   routing it through the normal scan made it visibly lag the pointer.

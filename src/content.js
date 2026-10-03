@@ -493,7 +493,9 @@
     // same deck. Commander plus card count is not enough: two different decks
     // for the same commander with the same size collide.
     const deckId = location.pathname;
-    const sig = `${deckId}|${names.size}|${edhrecKey}|${rankCache.size}`;
+    // Copies as well as names: a 33rd Mountain changes the count but no name.
+    const shown = dom.deckCardCount();
+    const sig = `${deckId}|${names.size}|${shown}|${edhrecKey}|${rankCache.size}`;
     if (sig === lastPanelSig) return;
     lastPanelSig = sig;
 
@@ -503,7 +505,8 @@
     const stated = dom.statedDeckSize();
     // Canonical names, because everything the panel compares against uses them.
     const deck = new Set([...names].map((n) => frontFace(canonicalOf(n))));
-    const mismatch = stated && names.size < stated ? { seen: names.size, stated } : null;
+    // Copies against copies: the stated size counts every Mountain.
+    const mismatch = stated && shown < stated ? { seen: shown, stated } : null;
 
     // The Cuts view needs the deck's own cards with their ranks, which only
     // this side has: rankCache is populated as badges are built. `name` stays
